@@ -1,6 +1,6 @@
 {
     "name": "svn-merge-tool",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "description": "SVN branch merge CLI tool - merge specific revisions one by one",
     "bin": {
         "svn-merge-tool": "bin/svn-merge-tool.js"
@@ -8,7 +8,8 @@
     "files": [
         "bin/",
         "dist/",
-        "README.md"
+        "README.md",
+        "README.zh-CN.md"
     ],
     "engines": {
         "node": ">=18"

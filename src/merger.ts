@@ -94,7 +94,7 @@ function mergeRevision(
  * Returns a MergeSummary.
  */
 export function run(options: MergeOptions, logger: Logger): MergeSummary {
-  const { workspace, fromUrl, revisions, ignorePaths = [] } = options;
+  const { workspace, fromUrl, revisions, ignorePaths = [], verbose = false } = options;
   const results: RevisionMergeResult[] = [];
   const total = revisions.length;
 
@@ -124,21 +124,23 @@ export function run(options: MergeOptions, logger: Logger): MergeSummary {
       if (activeConflicts.length > 0) parts.push(`${activeConflicts.length} conflict(s)`);
       if (ignoredConflicts.length > 0) parts.push(`${ignoredConflicts.length} ignored`);
       if (result.reverted.length > 0) parts.push(`${result.reverted.length} reverted`);
-      process.stdout.write(`\x1b[1A\x1b[2K${YELLOW(label + `  (${parts.join(', ')})`)}\n`);
+      const hasTreeConflict = activeConflicts.some((c) => c.type === 'tree');
+      const labelColor = hasTreeConflict ? RED : YELLOW;
+      process.stdout.write(`\x1b[1A\x1b[2K${labelColor(label + `  (${parts.join(', ')})`)}\n`);
       for (const c of activeConflicts) {
         const rel = relPath(c.path, workspace);
         const line = formatConflictLine(c.type, c.isDirectory, rel, c.resolution);
-        process.stdout.write(YELLOW(`  ${line}\n`));
+        process.stdout.write((c.type === 'tree' ? RED : YELLOW)(`  ${line}\n`));
       }
       for (const c of ignoredConflicts) {
         const rel = relPath(c.path, workspace);
         const line = formatConflictLine(c.type, c.isDirectory, rel, 'ignored');
-        process.stdout.write(GRAY(`  ${line}\n`));
+        if (verbose) process.stdout.write(GRAY(`  ${line}\n`));
       }
       for (const r of result.reverted) {
         const rel = relPath(r.path, workspace);
         const kindTag = r.isDirectory ? '[D]' : '[F]';
-        process.stdout.write(GRAY(`  [NONE    ]${kindTag}  ${rel}  (reverted)\n`));
+        if (verbose) process.stdout.write(GRAY(`  [NONE    ]${kindTag}  ${rel}  (reverted)\n`));
       }
     } else {
       process.stdout.write(`\x1b[1A\x1b[2K${GREEN(label + '  ✓')}\n`);

@@ -7,6 +7,8 @@ export interface MergeOptions {
   revisions: number[];
   /** Workspace-relative paths to ignore during merge (files or folders) */
   ignorePaths?: string[];
+  /** When true, print ignored/reverted entries on the console */
+  verbose?: boolean;
 }
 
 /**

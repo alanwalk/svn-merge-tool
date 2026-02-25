@@ -21,10 +21,11 @@ const program = new Command();
 program
   .name('svn-merge-tool')
   .description('SVN branch merge tool — merge specific revisions one by one')
-  .version('1.0.0')
+  .version('1.0.2')
   .option('-c, --config <path>', 'Path to INI config file (can provide workspace and from-url)')
   .option('-w, --workspace <path>', 'SVN working copy directory')
   .option('-f, --from-url <url>', 'Source branch URL to merge from')
+  .option('-v, --verbose', 'Show ignored/reverted file details in console output')
   .requiredOption(
     '-r, --revisions <revisions>',
     'Comma-separated list of revisions or ranges to merge (e.g. 1001,1002-1005,1008)'
@@ -53,7 +54,7 @@ Examples:
 
 program.parse(process.argv);
 
-const opts = program.opts<{ config?: string; workspace?: string; fromUrl?: string; revisions: string }>();
+const opts = program.opts<{ config?: string; workspace?: string; fromUrl?: string; revisions: string; verbose?: boolean }>();
 
 // ─── Load config file (if provided) ──────────────────────────────────────────
 let configWorkspace: string | undefined;
@@ -181,11 +182,12 @@ const options: MergeOptions = {
   fromUrl: rawFromUrl,
   revisions,
   ignorePaths: configIgnoreMerge,
+  verbose: opts.verbose ?? false,
 };
 
-const logger = new Logger();
+const logger = new Logger(workspace);
 const summary = run(options, logger);
-logger.close();
+// logger stays open until after summary is written to log
 
 // ─── Console summary helpers ──────────────────────────────────────────────────
 const DONE_GREEN = (s: string) => `\x1b[32m${s}\x1b[0m`;
@@ -193,6 +195,7 @@ const DONE_YELLOW = (s: string) => `\x1b[33m${s}\x1b[0m`;
 const DONE_RED = (s: string) => `\x1b[31m${s}\x1b[0m`;
 
 // ─── Console: conflict summary ────────────────────────────────────────────────
+const verbose = opts.verbose ?? false;
 const allReverted = summary.results.flatMap((r) => r.reverted ?? []);
 const uniqueReverted = [...new Map(allReverted.map((r) => [r.path, r])).values()];
 const uniqueRevertedRel = uniqueReverted.map((r) => ({
@@ -201,54 +204,74 @@ const uniqueRevertedRel = uniqueReverted.map((r) => ({
 }));
 uniqueRevertedRel.sort((a, b) => a.relPath.localeCompare(b.relPath));
 
-if (summary.withConflicts > 0 || summary.failed > 0 || uniqueReverted.length > 0) {
+const hasActiveConflicts = summary.results.some((r) => r.conflicts.some((c) => !c.ignored));
+if (hasActiveConflicts || summary.failed > 0 || (verbose && (uniqueReverted.length > 0 || summary.withConflicts > 0))) {
   console.log();
   console.log('\x1b[1mConflict Summary:\x1b[0m');
+  logger.log('');
+  logger.log('Conflict Summary:');
 
   for (const result of summary.results) {
     if (!result.success) {
       console.log(DONE_RED(`  r${result.revision}  FAILED  ${result.errorMessage ?? ''}`));
+      logger.log(`  r${result.revision}  FAILED  ${result.errorMessage ?? ''}`);
     }
   }
 
   const groups = groupSummaryByType(summary.results, workspace);
+  const GRAY = (s: string) => `\x1b[90m${s}\x1b[0m`;
   const typeLabels: Record<string, string> = {
     tree: 'Tree Conflicts',
     text: 'Text Conflicts',
     property: 'Property Conflicts',
   };
 
-  const GRAY = (s: string) => `\x1b[90m${s}\x1b[0m`;
+  const DONE_RED_SUMMARY = (s: string) => `\x1b[31m${s}\x1b[0m`;
   for (const [type, entries] of groups) {
     if (entries.length === 0) continue;
-    const activeCount = entries.filter((e) => !e.ignored).length;
-    const ignoredCount = entries.filter((e) => e.ignored).length;
-    const countLabel = ignoredCount > 0 ? `${activeCount} + ${ignoredCount} ignored` : `${entries.length}`;
-    const allIgnored = activeCount === 0;
-    console.log((allIgnored ? GRAY : DONE_YELLOW)(`  ${typeLabels[type]} (${countLabel}):`));
-    for (const e of entries) {
+    const activeEntries = entries.filter((e) => !e.ignored);
+    const ignoredEntries = entries.filter((e) => e.ignored);
+    // When not verbose, skip groups that have no active entries
+    if (!verbose && activeEntries.length === 0) continue;
+    const countLabel = verbose && ignoredEntries.length > 0
+      ? `${activeEntries.length} + ${ignoredEntries.length} ignored`
+      : `${activeEntries.length}`;
+    const titleColor = type === 'tree' ? DONE_RED_SUMMARY : DONE_YELLOW;
+    const titleLine = `  ${typeLabels[type]} (${countLabel}):`;
+    console.log(titleColor(titleLine));
+    logger.log(titleLine);
+    for (const e of activeEntries) {
       const kindTag = e.isDirectory ? '[D]' : '[F]';
       const line = `    ${kindTag}  ${e.relPath}  (${e.resolution})`;
-      if (e.ignored) {
+      console.log((type === 'tree' ? DONE_RED_SUMMARY : DONE_YELLOW)(line));
+      logger.log(line);
+    }
+    if (verbose) {
+      for (const e of ignoredEntries) {
+        const kindTag = e.isDirectory ? '[D]' : '[F]';
+        const line = `    ${kindTag}  ${e.relPath}  (${e.resolution})`;
         console.log(GRAY(line));
-      } else {
-        console.log(DONE_YELLOW(line));
+        logger.log(line);
       }
     }
   }
 
-  if (uniqueRevertedRel.length > 0) {
-    console.log(GRAY(`  Reverted (${uniqueRevertedRel.length} Ignored):`));
+  if (verbose && uniqueRevertedRel.length > 0) {
+    const revertTitle = `  Reverted (${uniqueRevertedRel.length} Ignored):`;
+    console.log(GRAY(revertTitle));
+    logger.log(revertTitle);
     for (const r of uniqueRevertedRel) {
       const kindTag = r.isDirectory ? '[D]' : '[F]';
-      console.log(GRAY(`    ${kindTag}  ${r.relPath}  (reverted)`));
+      const line = `    ${kindTag}  ${r.relPath}  (reverted)`;
+      console.log(GRAY(line));
+      logger.log(line);
     }
   }
 }
 
 // ─── Generate merge message file ─────────────────────────────────────────────
 console.log('\nGenerating merge message...');
-writeMessageFile(summary, rawFromUrl);
+writeMessageFile(summary, rawFromUrl, workspace);
 
 // ─── Console: done line ───────────────────────────────────────────────────────
 
@@ -264,6 +287,7 @@ console.log(
     .join('  ')
 );
 console.log(`Log: ${logger.getLogPath()}`);
-console.log(`Msg: ${getMessageFilePath()}`);
+console.log(`Msg: ${getMessageFilePath(workspace)}`);
 
+logger.close();
 process.exit(summary.failed > 0 ? 1 : 0);

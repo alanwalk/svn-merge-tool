@@ -1,5 +1,4 @@
 node_modules/
 *.log
-svn-merge-message.txt
 .env
 dist/

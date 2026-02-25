@@ -1,5 +1,7 @@
 # svn-merge-tool
 
+[中文文档](README.zh-CN.md)
+
 A CLI tool for merging specific SVN revisions one by one, with automatic conflict resolution, ignore rules, and merge message generation.
 
 ## Features
@@ -126,6 +128,25 @@ Conflict Summary:
 - TypeScript 5.5 + ts-node 10.9 (runs directly, no compile step needed)
 - [commander](https://github.com/tj/commander.js) — CLI argument parsing
 - [js-yaml](https://github.com/nodeca/js-yaml) — YAML config parsing
+
+## Changelog
+
+### 1.0.2
+- `-v / --verbose` flag: ignored and reverted file details are now hidden by default; pass `-v` to show them in the console
+- Tree conflicts now display in **red**; text/property conflicts in yellow
+- Conflict Summary is written to `svn-merge-tool.log` at the end of each run
+- `svn-merge-tool.log` and `svn-merge-message.txt` are now generated inside the workspace directory (not cwd)
+
+### 1.0.1
+- Fix: `bin` path in `package.json` was invalid (`./` prefix removed)
+
+### 1.0.0
+- Initial release
+- Per-revision merge with automatic conflict resolution
+- YAML config file with `ignore-merge` path list
+- Real-time log file streaming
+- Merge message file generation
+- Pre-merge `svn update` and dirty working-copy check
 
 ## License
 
