@@ -1,0 +1,23 @@
+{
+    "name": "svn-merge-tool",
+    "version": "1.0.0",
+    "description": "SVN branch merge CLI tool - merge specific revisions one by one",
+    "bin": {
+        "svn-merge-tool": "./bin/svn-merge-tool.js"
+    },
+    "scripts": {
+        "start": "ts-node src/index.ts",
+        "build": "tsc",
+        "lint": "tsc --noEmit"
+    },
+    "dependencies": {
+        "commander": "^12.1.0",
+        "js-yaml": "^4.1.1",
+        "ts-node": "^10.9.2",
+        "typescript": "^5.5.0"
+    },
+    "devDependencies": {
+        "@types/js-yaml": "^4.0.9",
+        "@types/node": "^22.0.0"
+    }
+}
