@@ -1,0 +1,6 @@
+src/
+.vscode/
+*.log
+svn-merge-message.txt
+.gitignore
+tsconfig.json
