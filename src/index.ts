@@ -1,14 +1,16 @@
 #!/usr/bin/env ts-node
 
 import { Command } from 'commander';
+import * as fs from 'fs';
 import * as path from 'path';
 
 import { findDefaultConfig, loadConfig } from './config';
 import { Logger } from './logger';
 import { run } from './merger';
 import { getMessageFilePath, writeMessageFile } from './message';
-import * as fs from 'fs';
-import { svnCommit, svnEligibleRevisions, svnInfo, svnLogBatch, svnStatusDirty, svnUpdate } from './svn';
+import {
+    svnCommit, svnEligibleRevisions, svnInfo, svnLogBatch, svnStatusDirty, svnUpdate
+} from './svn';
 import { MergeOptions } from './types';
 import { compressRevisions, groupSummaryByType, relPath } from './utils';
 
@@ -33,13 +35,14 @@ const program = new Command();
 program
   .name('svn-merge-tool')
   .description('SVN branch merge tool — merge specific revisions one by one')
-  .version('1.0.3')
+  .version('1.0.3', '-v, --version', 'Output version number')
   .option('-c, --config <path>', 'Path to INI config file (can provide workspace and from-url)')
   .option('-w, --workspace <path>', 'SVN working copy directory')
   .option('-f, --from-url <url>', 'Source branch URL to merge from')
-  .option('-v, --verbose', 'Show ignored/reverted file details in console output')
-  .option('--dry-run', 'List eligible revisions and their log messages without merging')
-  .option('--commit', 'Automatically run svn commit after a successful merge, using the generated message file')
+  .option('-V, --verbose', 'Show ignored/reverted file details in console output')
+  .option('-d, --dry-run', 'List eligible revisions and their log messages without merging')
+  .option('-o, --output <path>', 'Output directory for log and message files (overrides config outputDir)')
+  .option('-C, --commit', 'Automatically run svn commit after a successful merge, using the generated message file')
   .option(
     '-r, --revisions <revisions>',
     'Revisions or ranges to merge, e.g. 1001,1002-1005,1008. Omit to merge all eligible revisions.'
@@ -62,10 +65,10 @@ Default config discovery:
 
 Examples:
   svn-merge-tool                                  # merge all eligible revisions (prompts confirm)
-  svn-merge-tool --dry-run                        # preview eligible revisions and log, no merge
+  svn-merge-tool -d                               # preview eligible revisions and log, no merge
   svn-merge-tool -r 1001                          # merge specific revision
-  svn-merge-tool -r 1001 --commit                 # merge and auto-commit using generated message
-  svn-merge-tool --dry-run -r 84597-84610         # preview specific revisions and log
+  svn-merge-tool -r 1001 -C                       # merge and auto-commit using generated message
+  svn-merge-tool -d -r 84597-84610                # preview specific revisions and log
   svn-merge-tool -c ./svn.yaml -r 84597-84608,84610
   svn-merge-tool -w /path/to/copy -f http://svn.example.com/branches/feature -r 1001
   svn-merge-tool -c ./svn.yaml -w /path/to/override -r 1001,1002,1003
@@ -74,7 +77,7 @@ Examples:
 
 program.parse(process.argv);
 
-const opts = program.opts<{ config?: string; workspace?: string; fromUrl?: string; revisions?: string; verbose?: boolean; dryRun?: boolean; commit?: boolean }>();
+const opts = program.opts<{ config?: string; workspace?: string; fromUrl?: string; revisions?: string; verbose?: boolean; dryRun?: boolean; output?: string; commit?: boolean }>();
 
 // ─── Load config file (if provided) ──────────────────────────────────────────
 let configWorkspace: string | undefined;
@@ -121,11 +124,12 @@ if (!rawFromUrl) {
 // ─── Validate workspace path ──────────────────────────────────────────────────
 const workspace = path.resolve(rawWorkspace);
 
-// Resolve outputDir: explicit config > default (.svnmerge under workspace)
-const outputDir = configOutputDir
-  ? (path.isAbsolute(configOutputDir)
-      ? configOutputDir
-      : path.resolve(workspace, configOutputDir))
+// Resolve outputDir: CLI -o > config > default (.svnmerge under workspace)
+const rawOutputDir = opts.output ?? configOutputDir;
+const outputDir = rawOutputDir
+  ? (path.isAbsolute(rawOutputDir)
+      ? rawOutputDir
+      : path.resolve(workspace, rawOutputDir))
   : path.join(workspace, '.svnmerge');
 
 try {

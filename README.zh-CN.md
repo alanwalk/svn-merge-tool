@@ -44,10 +44,11 @@ svn-merge-tool [选项]
   -w, --workspace <path>    SVN 工作副本目录
   -f, --from-url <url>      合并来源分支 URL
   -r, --revisions <list>    修订版本或范围，例如 1001,1002-1005,1008
-  -v, --verbose             在控制台显示 ignored/reverted 文件详情
-      --dry-run             列出待合并修订版本及日志，不执行合并
-      --commit              合并成功后自动执行 svn commit（使用生成的 message.txt）
-  -V, --version             显示版本号
+  -o, --output <path>       输出文件目录（覆盖配置中的 outputDir）
+  -V, --verbose             在控制台显示 ignored/reverted 文件详情
+  -d, --dry-run             列出待合并修订版本及日志，不执行合并
+  -C, --commit              合并成功后自动执行 svn commit（使用生成的 message.txt）
+  -v, --version             显示版本号
   -h, --help                显示帮助
 ```
 
@@ -58,11 +59,11 @@ svn-merge-tool [选项]
 svn-merge-tool -r 84597-84608,84610
 
 # 预览待合并修订版本，不执行合并
-svn-merge-tool --dry-run
-svn-merge-tool --dry-run -r 84597-84610
+svn-merge-tool -d
+svn-merge-tool -d -r 84597-84610
 
 # 合并后自动提交，使用生成的 message 文件作为日志
-svn-merge-tool -r 1001 --commit
+svn-merge-tool -r 1001 -C
 
 # 指定配置文件
 svn-merge-tool -c ./svn.yaml -r 84597-84608,84610
@@ -74,7 +75,7 @@ svn-merge-tool -w /path/to/copy -f http://svn.example.com/branches/feature -r 10
 svn-merge-tool -c ./svn.yaml -w /path/to/override -r 1001,1002,1003
 
 # 显示忽略/还原文件详情
-svn-merge-tool -v -r 1001,1002
+svn-merge-tool -V -r 1001,1002
 ```
 
 ## 配置文件
@@ -97,8 +98,8 @@ ignoreMerge:
 | `workspace`   | SVN 工作副本路径                                                                           |
 | `fromUrl`     | 合并来源分支 URL                                                                           |
 | `outputDir`   | 输出文件目录。绝对路径或相对于 workspace 的路径，默认为 workspace 下的 `.svnmerge/` 目录。 |
-| `commit`      | 设为 `true` 则合并成功后自动执行 `svn commit`（等同于 `--commit`）                        |
-| `verbose`     | 设为 `true` 则在控制台显示 ignored/reverted 文件详情（等同于 `-v`）                       |
+| `commit`      | 设为 `true` 则合并成功后自动执行 `svn commit`（等同于 `--commit`）                         |
+| `verbose`     | 设为 `true` 则在控制台显示 ignored/reverted 文件详情（等同于 `-V`）                       |
 | `ignoreMerge` | 需要始终丢弃的工作副本相对路径（文件或目录）                                               |
 
 命令行选项 `-w`、`-f`、`-v`、`--commit` 会覆盖配置文件中的对应值。
