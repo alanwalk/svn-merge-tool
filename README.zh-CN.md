@@ -44,7 +44,8 @@ svn-merge-tool [选项]
   -w, --workspace <path>    SVN 工作副本目录
   -f, --from <url>         合并来源分支 URL
   -r, --revisions <list>    修订版本或范围，例如 1001,1002-1005,1008
-  -o, --output <path>       输出文件目录（覆盖配置中的 outputDir）
+  -o, --output <path>       输出文件目录（覆盖配置中的 output）
+  -i, --ignore <paths>      逗号分隔的忽略路径（追加到配置的 ignore 列表）
   -V, --verbose             在控制台显示 ignored/reverted 文件详情
   -d, --dry-run             列出待合并修订版本及日志，不执行合并
   -C, --commit              合并成功后自动执行 svn commit（使用生成的 message.txt）
@@ -65,6 +66,9 @@ svn-merge-tool -d -r 84597-84610
 # 合并后自动提交，使用生成的 message 文件作为日志
 svn-merge-tool -r 1001 -C
 
+# 命令行传入忽略路径（追加到配置文件的 ignore 列表）
+svn-merge-tool -r 1001 -i src/thirdparty/generated,assets/auto
+
 # 指定配置文件
 svn-merge-tool -c ./svn.yaml -r 84597-84608,84610
 
@@ -84,7 +88,7 @@ svn-merge-tool -V -r 1001,1002
 
 ```yaml
 workspace: /path/to/working-copy
-fromUrl: http://svn.example.com/branches/feature
+from: http://svn.example.com/branches/feature
 output: /logs/svn             # 可选
 commit: true                  # 可选：合并成功后自动 svn commit
 verbose: false                # 可选：显示 ignored/reverted 详情（等同于 -V）
@@ -93,14 +97,14 @@ ignore:
   - assets/auto-generated/catalog.json
 ```
 
-| 字段        | 说明                                                                                     |
-| ----------- | ---------------------------------------------------------------------------------------- |
-| `workspace` | SVN 工作副本路径                                                                         |
-| `fromUrl`   | 合并来源分支 URL                                                                         |
+| 字段        | 说明                                                                                       |
+| ----------- | ------------------------------------------------------------------------------------------ |
+| `workspace` | SVN 工作副本路径                                                                           |
+| `from`      | 合并来源分支 URL（等同于 `-f`）                                                            |
 | `output`    | 输出文件目录。绝对路径或相对于 workspace 的路径，默认为 workspace 下的 `.svnmerge/` 目录。 |
-| `commit`    | 设为 `true` 则合并成功后自动执行 `svn commit`（等同于 `-C`）                             |
-| `verbose`   | 设为 `true` 则在控制台显示 ignored/reverted 文件详情（等同于 `-V`）                      |
-| `ignore`    | 需要始终丢弃的工作副本相对路径（文件或目录）                                             |
+| `commit`    | 设为 `true` 则合并成功后自动执行 `svn commit`（等同于 `-C`）                               |
+| `verbose`   | 设为 `true` 则在控制台显示 ignored/reverted 文件详情（等同于 `-V`）                        |
+| `ignore`    | 需要始终丢弃的工作副本相对路径（文件或目录）。`-i` 传入的路径会追加到此列表。 |
 
 命令行选项 `-w`、`-f`、`-o`、`-V`、`-C` 会覆盖配置文件中的对应值。
 
@@ -137,7 +141,7 @@ Conflict Summary:
 
 ### 输出文件
 
-两个文件均写入 `outputDir`（默认为 workspace 下的 `.svnmerge/` 目录）。
+两个文件均写入 `output` 目录（默认为 workspace 下的 `.svnmerge/` 目录）。
 
 | 文件                         | 说明                                            |
 | ---------------------------- | ----------------------------------------------- |
@@ -164,6 +168,7 @@ Conflict Summary:
 
 ### 1.0.6
 - `-f, --from` 替代 `-f, --from-url`（长标志更简洁）
+- YAML 配置键 `fromUrl` 重命名为 `from`
 - YAML 配置键 `outputDir` 重命名为 `output`
 - YAML 配置键 `ignoreMerge` 重命名为 `ignore`
 

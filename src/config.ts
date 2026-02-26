@@ -9,14 +9,14 @@ import * as path from 'path';
  * Config file format (svn-merge-tool.yaml):
  *
  *   workspace: /path/to/working-copy
- *   fromUrl: http://svn.example.com/branches/feature
+ *   from: http://svn.example.com/branches/feature
  *   ignore:
  *     - src/thirdparty/generated
  *     - assets/auto-generated/catalog.json
  */
 export interface ConfigFile {
   workspace?: string;
-  fromUrl?: string;
+  from?: string;
   /** Workspace-relative paths (files or folders) to silently discard on conflict */
   ignore?: string[];
   /**
@@ -77,10 +77,10 @@ export function loadConfig(configPath: string): ConfigFile {
     config.workspace = path.isAbsolute(trimmed) ? trimmed : path.resolve(dir, trimmed);
   }
 
-  // fromUrl
-  const fromUrl = doc['fromUrl'];
+  // from
+  const fromUrl = doc['from'];
   if (typeof fromUrl === 'string' && fromUrl.trim()) {
-    config.fromUrl = fromUrl.trim();
+    config.from = fromUrl.trim();
   }
 
   // ignore: list of workspace-relative paths

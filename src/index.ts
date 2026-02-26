@@ -42,6 +42,7 @@ program
   .option('-V, --verbose', 'Show ignored/reverted file details in console output')
   .option('-d, --dry-run', 'List eligible revisions and their log messages without merging')
   .option('-o, --output <path>', 'Output directory for log and message files (overrides config output)')
+  .option('-i, --ignore <paths>', 'Comma-separated paths to ignore (appended to config ignore list)')
   .option('-C, --commit', 'Automatically run svn commit after a successful merge, using the generated message file')
   .option(
     '-r, --revisions <revisions>',
@@ -52,7 +53,7 @@ program
     `
 Config file (YAML format):
   workspace: /path/to/working-copy
-  fromUrl: http://svn.example.com/branches/feature
+  from: http://svn.example.com/branches/feature
   output: /logs/svn             # optional: absolute or workspace-relative
   commit: true                  # optional: auto svn commit after successful merge
   ignore:
@@ -68,6 +69,7 @@ Examples:
   svn-merge-tool -d                               # preview eligible revisions and log, no merge
   svn-merge-tool -r 1001                          # merge specific revision
   svn-merge-tool -r 1001 -C                       # merge and auto-commit using generated message
+  svn-merge-tool -r 1001 -i src/gen,assets/auto   # merge ignoring specific paths
   svn-merge-tool -d -r 84597-84610                # preview specific revisions and log
   svn-merge-tool -c ./svn.yaml -r 84597-84608,84610
   svn-merge-tool -w /path/to/copy -f http://svn.example.com/branches/feature -r 1001
@@ -77,7 +79,7 @@ Examples:
 
 program.parse(process.argv);
 
-const opts = program.opts<{ config?: string; workspace?: string; from?: string; revisions?: string; verbose?: boolean; dryRun?: boolean; output?: string; commit?: boolean }>();
+const opts = program.opts<{ config?: string; workspace?: string; from?: string; revisions?: string; verbose?: boolean; dryRun?: boolean; output?: string; ignore?: string; commit?: boolean }>();
 
 // ─── Load config file (if provided) ──────────────────────────────────────────
 let configWorkspace: string | undefined;
@@ -94,7 +96,7 @@ if (configPath) {
   try {
     const cfg = loadConfig(configPath);
     configWorkspace = cfg.workspace;
-    configFromUrl = cfg.fromUrl;
+    configFromUrl = cfg.from;
     configIgnoreMerge = cfg.ignore ?? [];
     configOutputDir = cfg.output;
     configVerbose = cfg.verbose ?? false;
@@ -117,7 +119,7 @@ if (!rawWorkspace) {
   process.exit(1);
 }
 if (!rawFromUrl) {
-  console.error(RED('Error: fromUrl is required. Provide -f <url>, -c <config>, or place svnmerge.yaml in the current/parent directory.'));
+  console.error(RED('Error: from (source URL) is required. Provide -f <url>, -c <config>, or place svnmerge.yaml in the current/parent directory.'));
   process.exit(1);
 }
 
@@ -275,12 +277,18 @@ if (opts.dryRun && revisions.length > 0) {
   process.exit(0);
 }
 
+// ─── Merge ignore paths: CLI -i appends to config ignore list ───────────────
+const cliIgnorePaths = opts.ignore
+  ? opts.ignore.split(',').map((s) => s.trim()).filter(Boolean)
+  : [];
+const ignorePaths = [...configIgnoreMerge, ...cliIgnorePaths];
+
 // ─── Run merge ───────────────────────────────────────────────────────────────
 const options: MergeOptions = {
   workspace,
   fromUrl: rawFromUrl,
   revisions,
-  ignorePaths: configIgnoreMerge,
+  ignorePaths,
   verbose: opts.verbose ?? configVerbose,
 };
 

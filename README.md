@@ -39,6 +39,7 @@ Options:
   -f, --from <url>         Source branch URL to merge from
   -r, --revisions <list>    Revisions or ranges, e.g. 1001,1002-1005,1008
   -o, --output <path>       Output directory for log and message files (overrides config)
+  -i, --ignore <paths>      Comma-separated paths to ignore (appended to config ignore list)
   -V, --verbose             Show ignored/reverted file details in console output
   -d, --dry-run             List eligible revisions and their log messages, no merge
   -C, --commit              Auto svn commit after successful merge (uses generated message file)
@@ -59,6 +60,9 @@ svn-merge-tool -d -r 84597-84610
 # Merge and auto-commit using the generated message file
 svn-merge-tool -r 1001 -C
 
+# Ignore specific paths on the command line (appended to config ignore list)
+svn-merge-tool -r 1001 -i src/thirdparty/generated,assets/auto
+
 # Custom output directory
 svn-merge-tool -r 1001 -o /logs/svn
 
@@ -78,7 +82,7 @@ The tool searches for `svnmerge.yaml` (or `.yml`) starting from the current dire
 
 ```yaml
 workspace: /path/to/working-copy
-fromUrl: http://svn.example.com/branches/feature
+from: http://svn.example.com/branches/feature
 output: /logs/svn             # optional
 commit: true                  # optional: auto svn commit after successful merge
 verbose: false                # optional: show ignored/reverted details (same as -V)
@@ -87,14 +91,14 @@ ignore:
   - assets/auto-generated/catalog.json
 ```
 
-| Key         | Description                                                                                                 |
-| ----------- | ----------------------------------------------------------------------------------------------------------- |
-| `workspace` | Path to the SVN working copy                                                                                |
-| `fromUrl`   | Source branch URL                                                                                           |
+| Key         | Description                                                                                                   |
+| ----------- | ------------------------------------------------------------------------------------------------------------- |
+| `workspace` | Path to the SVN working copy                                                                                  |
+| `from`      | Source branch URL (same as `-f`)                                                                              |
 | `output`    | Directory for output files. Absolute path or relative to workspace. Defaults to `.svnmerge/` under workspace. |
-| `commit`    | Set to `true` to automatically run `svn commit` after a successful merge (same as `-C`)                     |
-| `verbose`   | Set to `true` to show ignored/reverted file details in console (same as `-V`)                               |
-| `ignore`    | List of workspace-relative paths (files or folders) to always discard                                       |
+| `commit`    | Set to `true` to automatically run `svn commit` after a successful merge (same as `-C`)                       |
+| `verbose`   | Set to `true` to show ignored/reverted file details in console (same as `-V`)                                 |
+| `ignore`    | List of workspace-relative paths (files or folders) to always discard. CLI `-i` paths are appended to this list. |
 
 Command-line options `-w`, `-f`, `-o`, `-V`, `-C` override the corresponding config file values.
 
@@ -130,7 +134,7 @@ Conflict Summary:
 
 ### Output Files
 
-Both files are written to the `outputDir` (default: `.svnmerge/` under workspace).
+Both files are written to the `output` directory (default: `.svnmerge/` under workspace).
 
 | File                         | Description                                                   |
 | ---------------------------- | ------------------------------------------------------------- |
@@ -157,6 +161,7 @@ Both files are written to the `outputDir` (default: `.svnmerge/` under workspace
 
 ### 1.0.6
 - `-f, --from` replaces `-f, --from-url` (shorter long flag)
+- YAML key `fromUrl` renamed to `from`
 - YAML key `outputDir` renamed to `output`
 - YAML key `ignoreMerge` renamed to `ignore`
 
