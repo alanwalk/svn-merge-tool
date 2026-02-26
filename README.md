@@ -166,6 +166,9 @@ The log file is written to the `output` directory (default: `.svnmerge/` under w
 - `-f, --from` replaces `--from-url`; YAML keys renamed: `fromUrl`→`from`, `outputDir`→`output`, `ignoreMerge`→`ignore`
 - Config file renamed from `svn-merge-tool.yaml` to `svnmerge.yaml`
 - Log file renamed to `svnmerge-yyyymmddhhmmss.log`; commit message appended to log (no separate `message.txt`)
+- Resolved parameters (workspace, from, output, ignore, verbose, dry-run, commit, revisions) are printed after config load
+- Fix: auto-commit was incorrectly blocked when all conflicts were resolved or ignored; now only truly unresolved conflicts (failed `svn resolve`) block the commit
+- Fix: auto-commit skip message now lists the specific revision numbers that failed or have unresolved conflicts
 
 ### 1.0.3
 - YAML config keys renamed to camelCase: `fromUrl`, `outputDir`, `ignoreMerge`

@@ -173,6 +173,9 @@ Conflict Summary:
 - `-f, --from` 替代 `--from-url`；YAML 键重命名：`fromUrl`→`from`、`outputDir`→`output`、`ignoreMerge`→`ignore`
 - 配置文件名从 `svn-merge-tool.yaml` 改为 `svnmerge.yaml`
 - 日志文件改名为 `svnmerge-yyyymmddhhmmss.log`；提交信息追加到日志末尾，不再单独生成 `message.txt`
+- 配置加载后打印最终参数（workspace、from、output、ignore、verbose、dry-run、commit、revisions）
+- 修复：所有冲突均已解决或 ignored 时，之前错误地跳过自动提交；现在只有 `svn resolve` 真正失败才阻止提交
+- 修复：自动提交跳过消息现在会列出具体的失败/未解决冲突的修订号
 
 ### 1.0.3
 - YAML 配置字段重命名为小驼峰格式：`fromUrl`、`outputDir`、`ignoreMerge`
