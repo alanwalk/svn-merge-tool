@@ -10,7 +10,7 @@ import * as path from 'path';
  *
  *   workspace: /path/to/working-copy
  *   fromUrl: http://svn.example.com/branches/feature
- *   ignoreMerge:
+ *   ignore:
  *     - src/thirdparty/generated
  *     - assets/auto-generated/catalog.json
  */
@@ -18,18 +18,18 @@ export interface ConfigFile {
   workspace?: string;
   fromUrl?: string;
   /** Workspace-relative paths (files or folders) to silently discard on conflict */
-  ignoreMerge?: string[];
+  ignore?: string[];
   /**
    * Directory where log and message files are written.
    * Absolute path, or relative to the workspace directory.
    * Defaults to the workspace directory.
    */
-  outputDir?: string;
-  /** Mirror of the -v / --verbose CLI flag. */
+  output?: string;
+  /** Mirror of the -V / --verbose CLI flag. */
   verbose?: boolean;
   /**
    * Automatically run `svn commit` after a successful merge.
-   * Mirror of the --commit CLI flag.
+   * Mirror of the -C / --commit CLI flag.
    */
   commit?: boolean;
 }
@@ -83,18 +83,18 @@ export function loadConfig(configPath: string): ConfigFile {
     config.fromUrl = fromUrl.trim();
   }
 
-  // ignoreMerge: list of workspace-relative paths
-  const ignoreMerge = doc['ignoreMerge'];
-  if (Array.isArray(ignoreMerge)) {
-    config.ignoreMerge = ignoreMerge
+  // ignore: list of workspace-relative paths
+  const ignore = doc['ignore'];
+  if (Array.isArray(ignore)) {
+    config.ignore = ignore
       .filter((item) => typeof item === 'string' && item.trim())
       .map((item) => (item as string).trim());
   }
 
-  // outputDir: stored as-is (absolute or workspace-relative), resolved later
-  const outputDir = doc['outputDir'];
-  if (typeof outputDir === 'string' && outputDir.trim()) {
-    config.outputDir = outputDir.trim();
+  // output: stored as-is (absolute or workspace-relative), resolved later
+  const output = doc['output'];
+  if (typeof output === 'string' && output.trim()) {
+    config.output = output.trim();
   }
 
   // verbose

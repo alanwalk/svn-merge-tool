@@ -36,12 +36,12 @@ program
   .name('svn-merge-tool')
   .description('SVN branch merge tool — merge specific revisions one by one')
   .version('1.0.3', '-v, --version', 'Output version number')
-  .option('-c, --config <path>', 'Path to INI config file (can provide workspace and from-url)')
+  .option('-c, --config <path>', 'Path to YAML config file')
   .option('-w, --workspace <path>', 'SVN working copy directory')
-  .option('-f, --from-url <url>', 'Source branch URL to merge from')
+  .option('-f, --from <url>', 'Source branch URL to merge from')
   .option('-V, --verbose', 'Show ignored/reverted file details in console output')
   .option('-d, --dry-run', 'List eligible revisions and their log messages without merging')
-  .option('-o, --output <path>', 'Output directory for log and message files (overrides config outputDir)')
+  .option('-o, --output <path>', 'Output directory for log and message files (overrides config output)')
   .option('-C, --commit', 'Automatically run svn commit after a successful merge, using the generated message file')
   .option(
     '-r, --revisions <revisions>',
@@ -53,9 +53,9 @@ program
 Config file (YAML format):
   workspace: /path/to/working-copy
   fromUrl: http://svn.example.com/branches/feature
-  outputDir: /logs/svn          # optional: absolute or workspace-relative
+  output: /logs/svn             # optional: absolute or workspace-relative
   commit: true                  # optional: auto svn commit after successful merge
-  ignoreMerge:
+  ignore:
     - src/thirdparty/generated
     - assets/auto-generated/catalog.json
 
@@ -77,7 +77,7 @@ Examples:
 
 program.parse(process.argv);
 
-const opts = program.opts<{ config?: string; workspace?: string; fromUrl?: string; revisions?: string; verbose?: boolean; dryRun?: boolean; output?: string; commit?: boolean }>();
+const opts = program.opts<{ config?: string; workspace?: string; from?: string; revisions?: string; verbose?: boolean; dryRun?: boolean; output?: string; commit?: boolean }>();
 
 // ─── Load config file (if provided) ──────────────────────────────────────────
 let configWorkspace: string | undefined;
@@ -95,8 +95,8 @@ if (configPath) {
     const cfg = loadConfig(configPath);
     configWorkspace = cfg.workspace;
     configFromUrl = cfg.fromUrl;
-    configIgnoreMerge = cfg.ignoreMerge ?? [];
-    configOutputDir = cfg.outputDir;
+    configIgnoreMerge = cfg.ignore ?? [];
+    configOutputDir = cfg.output;
     configVerbose = cfg.verbose ?? false;
     configCommit = cfg.commit ?? false;
     const label = opts.config ? 'Config loaded' : 'Config auto-detected';
@@ -110,7 +110,7 @@ if (configPath) {
 
 // CLI options take precedence over config file
 const rawWorkspace = opts.workspace ?? configWorkspace;
-const rawFromUrl = opts.fromUrl ?? configFromUrl;
+const rawFromUrl = opts.from ?? configFromUrl;
 
 if (!rawWorkspace) {
   console.error(RED('Error: workspace is required. Provide -w <path>, -c <config>, or place svnmerge.yaml in the current/parent directory.'));
@@ -124,7 +124,7 @@ if (!rawFromUrl) {
 // ─── Validate workspace path ──────────────────────────────────────────────────
 const workspace = path.resolve(rawWorkspace);
 
-// Resolve outputDir: CLI -o > config > default (.svnmerge under workspace)
+// Resolve output dir: CLI -o > config > default (.svnmerge under workspace)
 const rawOutputDir = opts.output ?? configOutputDir;
 const outputDir = rawOutputDir
   ? (path.isAbsolute(rawOutputDir)

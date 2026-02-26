@@ -11,7 +11,7 @@ A CLI tool for merging specific SVN revisions one by one, with automatic conflic
 - **Tree conflicts** → keep local (`working`)
 - **Ignore rules** — paths matching `ignore-merge` patterns are always discarded (reverted), even when they produce no conflict
 - `--dry-run` mode — preview eligible revisions and their log messages without making any changes
-- `--commit` — automatically run `svn commit` after a successful merge, using the generated message file as the commit log
+- `-C, --commit` — automatically run `svn commit` after a successful merge, using the generated message file as the commit log
 - Minimal console progress with color-coded results; full details streamed to a timestamped log file
 - Generates a timestamped `message.txt` with compressed revision range + `svn log` bodies
 - Pre-merge `svn update` and dirty working-copy check with `[y/N]` prompt
@@ -36,7 +36,7 @@ svn-merge-tool [options]
 Options:
   -c, --config <path>       Path to YAML config file
   -w, --workspace <path>    SVN working copy directory
-  -f, --from-url <url>      Source branch URL to merge from
+  -f, --from <url>         Source branch URL to merge from
   -r, --revisions <list>    Revisions or ranges, e.g. 1001,1002-1005,1008
   -o, --output <path>       Output directory for log and message files (overrides config)
   -V, --verbose             Show ignored/reverted file details in console output
@@ -79,24 +79,24 @@ The tool searches for `svnmerge.yaml` (or `.yml`) starting from the current dire
 ```yaml
 workspace: /path/to/working-copy
 fromUrl: http://svn.example.com/branches/feature
-outputDir: /logs/svn          # optional
+output: /logs/svn             # optional
 commit: true                  # optional: auto svn commit after successful merge
-verbose: false                # optional: show ignored/reverted details (same as -v)
-ignoreMerge:
+verbose: false                # optional: show ignored/reverted details (same as -V)
+ignore:
   - src/thirdparty/generated
   - assets/auto-generated/catalog.json
 ```
 
-| Key           | Description                                                                                                   |
-| ------------- | ------------------------------------------------------------------------------------------------------------- |
-| `workspace`   | Path to the SVN working copy                                                                                  |
-| `fromUrl`     | Source branch URL                                                                                             |
-| `outputDir`   | Directory for output files. Absolute path or relative to workspace. Defaults to `.svnmerge/` under workspace. |
-| `commit`      | Set to `true` to automatically run `svn commit` after a successful merge (same as `-C`)                       |
-| `verbose`     | Set to `true` to show ignored/reverted file details in console (same as `-V`)                                  |
-| `ignoreMerge` | List of workspace-relative paths (files or folders) to always discard                                         |
+| Key         | Description                                                                                                 |
+| ----------- | ----------------------------------------------------------------------------------------------------------- |
+| `workspace` | Path to the SVN working copy                                                                                |
+| `fromUrl`   | Source branch URL                                                                                           |
+| `output`    | Directory for output files. Absolute path or relative to workspace. Defaults to `.svnmerge/` under workspace. |
+| `commit`    | Set to `true` to automatically run `svn commit` after a successful merge (same as `-C`)                     |
+| `verbose`   | Set to `true` to show ignored/reverted file details in console (same as `-V`)                               |
+| `ignore`    | List of workspace-relative paths (files or folders) to always discard                                       |
 
-Command-line options `-w`, `-f`, `-o`, `-v`, `-C` override the corresponding config file values.
+Command-line options `-w`, `-f`, `-o`, `-V`, `-C` override the corresponding config file values.
 
 ## Output
 
@@ -154,6 +154,11 @@ Both files are written to the `outputDir` (default: `.svnmerge/` under workspace
 - [js-yaml](https://github.com/nodeca/js-yaml) — YAML config parsing
 
 ## Changelog
+
+### 1.0.6
+- `-f, --from` replaces `-f, --from-url` (shorter long flag)
+- YAML key `outputDir` renamed to `output`
+- YAML key `ignoreMerge` renamed to `ignore`
 
 ### 1.0.5
 - `--commit` flag and `commit: true` config key: automatically run `svn commit` after a successful merge, using the generated `message.txt` as the commit log
