@@ -118,11 +118,11 @@ export function svnStatusAfterMerge(workspace: string): {
     if (!filePath) continue;
 
     if (col6 === 'C') {
-      conflicts.push({ path: filePath, type: 'tree', resolution: 'working', isDirectory: isDir(filePath), ignored: false });
+      conflicts.push({ path: filePath, type: 'tree', resolution: 'working', isDirectory: isDir(filePath), ignored: false, resolved: false });
     } else if (col0 === 'C') {
-      conflicts.push({ path: filePath, type: 'text', resolution: 'theirs-full', isDirectory: isDir(filePath), ignored: false });
+      conflicts.push({ path: filePath, type: 'text', resolution: 'theirs-full', isDirectory: isDir(filePath), ignored: false, resolved: false });
     } else if (col1 === 'C') {
-      conflicts.push({ path: filePath, type: 'property', resolution: 'theirs-full', isDirectory: isDir(filePath), ignored: false });
+      conflicts.push({ path: filePath, type: 'property', resolution: 'theirs-full', isDirectory: isDir(filePath), ignored: false, resolved: false });
     } else {
       // Non-conflict modified paths (skip clean / unversioned / external)
       if (col0 === ' ' || col0 === '?' || col0 === 'X') continue;
