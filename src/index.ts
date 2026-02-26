@@ -433,7 +433,7 @@ if (shouldCommit) {
     const msg = `Auto-commit skipped: ${reasons.join(', ')}.`;
     console.log(DONE_YELLOW(`\n${msg}`));
     logger.log(msg);
-  } else if (summary.succeeded + summary.withConflicts === 0) {
+  } else if (summary.succeeded === 0) {
     console.log(DONE_YELLOW('\nAuto-commit skipped: no revisions were successfully merged.'));
     logger.log('Auto-commit skipped: no revisions were successfully merged.');
   } else {

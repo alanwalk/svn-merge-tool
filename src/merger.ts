@@ -156,7 +156,7 @@ export function run(options: MergeOptions, logger: Logger): MergeSummary {
   let failed = 0;
   for (const r of results) {
     if (!r.success) failed++;
-    else if (r.conflicts.length > 0) withConflicts++;
+    else if (r.conflicts.some((c) => !c.ignored)) withConflicts++;
     else succeeded++;
   }
 
