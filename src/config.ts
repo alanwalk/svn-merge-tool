@@ -8,17 +8,23 @@ import * as path from 'path';
  *
  * Config file format (svn-merge-tool.yaml):
  *
- *   workspace: D:\my-working-copy
- *   from-url: http://svn.example.com/branches/feature
- *   ignore-merge:
+ *   workspace: /path/to/working-copy
+ *   fromUrl: http://svn.example.com/branches/feature
+ *   ignoreMerge:
  *     - src/thirdparty/generated
  *     - assets/auto-generated/catalog.json
  */
 export interface ConfigFile {
   workspace?: string;
-  'from-url'?: string;
+  fromUrl?: string;
   /** Workspace-relative paths (files or folders) to silently discard on conflict */
-  'ignore-merge'?: string[];
+  ignoreMerge?: string[];
+  /**
+   * Directory where svn-merge-tool.log and svn-merge-message.txt are written.
+   * Absolute path, or relative to the workspace directory.
+   * Defaults to the workspace directory.
+   */
+  outputDir?: string;
 }
 
 /**
@@ -64,18 +70,24 @@ export function loadConfig(configPath: string): ConfigFile {
     config.workspace = path.isAbsolute(trimmed) ? trimmed : path.resolve(dir, trimmed);
   }
 
-  // from-url
-  const fromUrl = doc['from-url'];
+  // fromUrl
+  const fromUrl = doc['fromUrl'];
   if (typeof fromUrl === 'string' && fromUrl.trim()) {
-    config['from-url'] = fromUrl.trim();
+    config.fromUrl = fromUrl.trim();
   }
 
-  // ignore-merge: list of workspace-relative paths
-  const ignoreMerge = doc['ignore-merge'];
+  // ignoreMerge: list of workspace-relative paths
+  const ignoreMerge = doc['ignoreMerge'];
   if (Array.isArray(ignoreMerge)) {
-    config['ignore-merge'] = ignoreMerge
+    config.ignoreMerge = ignoreMerge
       .filter((item) => typeof item === 'string' && item.trim())
       .map((item) => (item as string).trim());
+  }
+
+  // outputDir: stored as-is (absolute or workspace-relative), resolved later
+  const outputDir = doc['outputDir'];
+  if (typeof outputDir === 'string' && outputDir.trim()) {
+    config.outputDir = outputDir.trim();
   }
 
   return config;

@@ -57,10 +57,10 @@ svn-merge-tool -r 84597-84608,84610
 svn-merge-tool -c ./svn.yaml -r 84597-84608,84610
 
 # 全部通过命令行参数指定
-svn-merge-tool -w D:\my-copy -f http://svn.example.com/branches/feature -r 1001,1002
+svn-merge-tool -w /path/to/copy -f http://svn.example.com/branches/feature -r 1001,1002
 
 # 覆盖配置文件中的 workspace
-svn-merge-tool -c ./svn.yaml -w D:\override -r 1001,1002,1003
+svn-merge-tool -c ./svn.yaml -w /path/to/override -r 1001,1002,1003
 
 # 显示忽略/还原文件详情
 svn-merge-tool -v -r 1001,1002
@@ -71,18 +71,20 @@ svn-merge-tool -v -r 1001,1002
 工具从当前目录开始向上查找 `svn-merge-tool.yaml`（或 `.yml`）。
 
 ```yaml
-workspace: D:\my-working-copy
-from-url: http://svn.example.com/branches/feature
-ignore-merge:
+workspace: /path/to/working-copy
+fromUrl: http://svn.example.com/branches/feature
+outputDir: /logs/svn          # 可选
+ignoreMerge:
   - src/thirdparty/generated
   - assets/auto-generated/catalog.json
 ```
 
-| 字段           | 说明                                         |
-| -------------- | -------------------------------------------- |
-| `workspace`    | SVN 工作副本路径                             |
-| `from-url`     | 合并来源分支 URL                             |
-| `ignore-merge` | 需要始终丢弃的工作副本相对路径（文件或目录） |
+| 字段          | 说明                                                                                     |
+| ------------- | ---------------------------------------------------------------------------------------- |
+| `workspace`   | SVN 工作副本路径                                                                         |
+| `fromUrl`     | 合并来源分支 URL                                                                         |
+| `outputDir`   | 日志和提交信息文件的输出目录。绝对路径或相对于 workspace 的路径，默认为 workspace 目录。 |
+| `ignoreMerge` | 需要始终丢弃的工作副本相对路径（文件或目录）                                             |
 
 命令行选项 `-w` 和 `-f` 会覆盖配置文件中的对应值。
 
@@ -141,6 +143,12 @@ Conflict Summary:
 - [js-yaml](https://github.com/nodeca/js-yaml) — YAML 配置解析
 
 ## 更新日志
+
+### 1.0.3
+- YAML 配置字段重命名为小驼峰格式：`fromUrl`、`outputDir`、`ignoreMerge`
+- 新增 `outputDir` 配置字段：自定义 `svn-merge-tool.log` 和 `svn-merge-message.txt` 的输出目录
+- `-r` 参数改为可选：不传时自动查询所有 eligible 修订版本（`svn mergeinfo --show-revs eligible`）并提示确认后合并
+- 文档和帮助文本中的路径示例改为 Unix 风格
 
 ### 1.0.2
 - 新增 `-v / --verbose` 参数：ignored 和 reverted 文件详情默认不显示，加 `-v` 才输出到控制台

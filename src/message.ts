@@ -20,9 +20,9 @@ const ENTRY_SEP = '........';
 export function writeMessageFile(
   summary: MergeSummary,
   fromUrl: string,
-  workspace: string,
+  outputDir: string,
 ): void {
-  const outPath = path.join(workspace, 'svn-merge-message.txt');
+  const outPath = path.join(outputDir, 'svn-merge-message.txt');
   const branch = branchName(fromUrl);
 
   // Only include successfully merged revisions
@@ -57,6 +57,6 @@ export function writeMessageFile(
   return;
 }
 
-export function getMessageFilePath(workspace: string): string {
-  return path.join(workspace, 'svn-merge-message.txt');
+export function getMessageFilePath(outputDir: string): string {
+  return path.join(outputDir, 'svn-merge-message.txt');
 }

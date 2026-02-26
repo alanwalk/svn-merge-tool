@@ -2,6 +2,7 @@
     "chat.tools.terminal.autoApprove": {
         "npm install": true,
         "svn-merge-tool": true,
-        "git commit": true
+        "git commit": true,
+        "npm publish": true
     }
 }

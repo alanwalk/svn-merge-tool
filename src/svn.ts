@@ -189,6 +189,24 @@ export function svnResolve(
 }
 
 /**
+ * Return all revisions from fromUrl that are eligible to be merged into workspace.
+ * Uses `svn mergeinfo --show-revs eligible`.
+ */
+export function svnEligibleRevisions(fromUrl: string, workspace: string): number[] {
+  const { stdout, exitCode } = runSvn(
+    ['mergeinfo', '--show-revs', 'eligible', fromUrl, workspace],
+    workspace
+  );
+  if (exitCode !== 0 || !stdout.trim()) return [];
+  return stdout
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .map((l) => parseInt(l.replace(/^r/, ''), 10))
+    .filter((n) => !isNaN(n) && n > 0);
+}
+
+/**
  * Fetch the commit log message body for a single revision.
  * Returns the trimmed message body, or an empty string on failure.
  *

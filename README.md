@@ -50,10 +50,10 @@ svn-merge-tool -r 84597-84608,84610
 svn-merge-tool -c ./svn.yaml -r 84597-84608,84610
 
 # All options on the command line
-svn-merge-tool -w D:\my-copy -f http://svn.example.com/branches/feature -r 1001,1002
+svn-merge-tool -w /path/to/copy -f http://svn.example.com/branches/feature -r 1001,1002
 
 # Override workspace from config
-svn-merge-tool -c ./svn.yaml -w D:\override -r 1001,1002,1003
+svn-merge-tool -c ./svn.yaml -w /path/to/override -r 1001,1002,1003
 ```
 
 ## Config File
@@ -61,18 +61,20 @@ svn-merge-tool -c ./svn.yaml -w D:\override -r 1001,1002,1003
 The tool searches for `svn-merge-tool.yaml` (or `.yml`) starting from the current directory and walking up to the filesystem root.
 
 ```yaml
-workspace: D:\my-working-copy
-from-url: http://svn.example.com/branches/feature
-ignore-merge:
+workspace: /path/to/working-copy
+fromUrl: http://svn.example.com/branches/feature
+outputDir: /logs/svn          # optional
+ignoreMerge:
   - src/thirdparty/generated
   - assets/auto-generated/catalog.json
 ```
 
-| Key            | Description                                                           |
-| -------------- | --------------------------------------------------------------------- |
-| `workspace`    | Path to the SVN working copy                                          |
-| `from-url`     | Source branch URL                                                     |
-| `ignore-merge` | List of workspace-relative paths (files or folders) to always discard |
+| Key           | Description                                                                                                                    |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `workspace`   | Path to the SVN working copy                                                                                                   |
+| `fromUrl`     | Source branch URL                                                                                                              |
+| `outputDir`   | Directory for `svn-merge-tool.log` and `svn-merge-message.txt`. Absolute path or relative to workspace. Defaults to workspace. |
+| `ignoreMerge` | List of workspace-relative paths (files or folders) to always discard                                                          |
 
 Command-line options `-w` and `-f` override the config file values.
 
@@ -130,6 +132,12 @@ Conflict Summary:
 - [js-yaml](https://github.com/nodeca/js-yaml) — YAML config parsing
 
 ## Changelog
+
+### 1.0.3
+- YAML config keys renamed to camelCase: `fromUrl`, `outputDir`, `ignoreMerge`
+- `outputDir` config field: customize output directory for `svn-merge-tool.log` and `svn-merge-message.txt`
+- `-r` is now optional: omit to merge all eligible revisions (`svn mergeinfo --show-revs eligible`), with confirmation prompt
+- Path examples in docs/help text changed to Unix style
 
 ### 1.0.2
 - `-v / --verbose` flag: ignored and reverted file details are now hidden by default; pass `-v` to show them in the console
