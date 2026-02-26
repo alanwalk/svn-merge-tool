@@ -197,6 +197,22 @@ if (opts.revisions) {
   }
 }
 
+// ─── Print resolved parameters ───────────────────────────────────────────────
+{
+  const cliIgnorePaths = opts.ignore ? opts.ignore.split(',').map((s) => s.trim()).filter(Boolean) : [];
+  const allIgnore = [...configIgnoreMerge, ...cliIgnorePaths];
+  console.log(CYAN('─── Parameters ───────────────────────────────────────'));
+  console.log(CYAN(`  workspace : ${workspace}`));
+  console.log(CYAN(`  from      : ${rawFromUrl}`));
+  console.log(CYAN(`  output    : ${outputDir}`));
+  console.log(CYAN(`  ignore    : ${allIgnore.length ? allIgnore.join(', ') : '(none)'}`));
+  console.log(CYAN(`  verbose   : ${!!(opts.verbose || configVerbose)}`));
+  console.log(CYAN(`  dry-run   : ${!!opts.dryRun}`));
+  console.log(CYAN(`  commit    : ${!!(opts.commit || configCommit)}`));
+  console.log(CYAN(`  revisions : ${revisions.length ? compressRevisions(revisions) : '(auto — all eligible)'}`));
+  console.log(CYAN('──────────────────────────────────────────────────────'));
+}
+
 // ─── Check for local modifications ──────────────────────────────────────────
 const dirtyLines = svnStatusDirty(workspace);
 if (dirtyLines.length > 0) {
