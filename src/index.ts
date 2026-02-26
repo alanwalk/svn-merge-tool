@@ -419,12 +419,21 @@ const shouldCommit = (opts.commit ?? false) || configCommit;
 if (shouldCommit) {
   if (summary.failed > 0 || hasActiveConflicts) {
     const reasons: string[] = [];
-    if (summary.failed > 0) reasons.push(`${summary.failed} revision(s) failed`);
-    if (hasActiveConflicts) reasons.push('unresolved conflicts');
+    if (summary.failed > 0) {
+      const failedRevs = summary.results.filter((r) => !r.success).map((r) => `r${r.revision}`).join(', ');
+      reasons.push(`${summary.failed} revision(s) failed (${failedRevs})`);
+    }
+    if (hasActiveConflicts) {
+      const conflictRevs = summary.results
+        .filter((r) => r.conflicts.some((c) => !c.ignored))
+        .map((r) => `r${r.revision}`)
+        .join(', ');
+      reasons.push(`unresolved conflicts (${conflictRevs})`);
+    }
     const msg = `Auto-commit skipped: ${reasons.join(', ')}.`;
     console.log(DONE_YELLOW(`\n${msg}`));
     logger.log(msg);
-  } else if (summary.succeeded === 0) {
+  } else if (summary.succeeded + summary.withConflicts === 0) {
     console.log(DONE_YELLOW('\nAuto-commit skipped: no revisions were successfully merged.'));
     logger.log('Auto-commit skipped: no revisions were successfully merged.');
   } else {
