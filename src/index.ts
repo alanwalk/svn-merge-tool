@@ -51,7 +51,7 @@ Config file (YAML format):
   workspace: /path/to/working-copy
   fromUrl: http://svn.example.com/branches/feature
   outputDir: /logs/svn          # optional: absolute or workspace-relative
-  autoCommit: true              # optional: auto svn commit after successful merge
+  commit: true                  # optional: auto svn commit after successful merge
   ignoreMerge:
     - src/thirdparty/generated
     - assets/auto-generated/catalog.json
@@ -82,7 +82,7 @@ let configFromUrl: string | undefined;
 let configIgnoreMerge: string[] = [];
 let configOutputDir: string | undefined;
 let configVerbose = false;
-let configAutoCommit = false;
+let configCommit = false;
 
 // Resolve config path: explicit -c, or auto-discover svn-merge-config.ini
 const configPath = opts.config ?? findDefaultConfig();
@@ -95,7 +95,7 @@ if (configPath) {
     configIgnoreMerge = cfg.ignoreMerge ?? [];
     configOutputDir = cfg.outputDir;
     configVerbose = cfg.verbose ?? false;
-    configAutoCommit = cfg.autoCommit ?? false;
+    configCommit = cfg.commit ?? false;
     const label = opts.config ? 'Config loaded' : 'Config auto-detected';
     console.log(CYAN(`${label}: ${path.resolve(configPath)}`));
   } catch (e: unknown) {
@@ -386,7 +386,7 @@ console.log(`Log: ${logger.getLogPath()}`);
 console.log(`Msg: ${msgFilePath}`);
 
 // ─── Auto-commit ─────────────────────────────────────────────────────────────
-const shouldCommit = (opts.commit ?? false) || configAutoCommit;
+const shouldCommit = (opts.commit ?? false) || configCommit;
 if (shouldCommit) {
   if (summary.failed > 0 || hasActiveConflicts) {
     console.log(DONE_YELLOW('\nAuto-commit skipped: merge has failures or unresolved conflicts.'));

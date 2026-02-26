@@ -10,8 +10,10 @@ A CLI tool for merging specific SVN revisions one by one, with automatic conflic
 - **Text / Property conflicts** → accept incoming (`theirs-full`)
 - **Tree conflicts** → keep local (`working`)
 - **Ignore rules** — paths matching `ignore-merge` patterns are always discarded (reverted), even when they produce no conflict
-- Minimal console progress with color-coded results; full details streamed to `svn-merge-tool.log`
-- Generates `svn-merge-message.txt` with compressed revision range + `svn log` bodies
+- `--dry-run` mode — preview eligible revisions and their log messages without making any changes
+- `--commit` — automatically run `svn commit` after a successful merge, using the generated message file as the commit log
+- Minimal console progress with color-coded results; full details streamed to a timestamped log file
+- Generates a timestamped `message.txt` with compressed revision range + `svn log` bodies
 - Pre-merge `svn update` and dirty working-copy check with `[y/N]` prompt
 - YAML config file with auto-discovery walking up from `cwd`
 
@@ -35,7 +37,10 @@ Options:
   -c, --config <path>       Path to YAML config file
   -w, --workspace <path>    SVN working copy directory
   -f, --from-url <url>      Source branch URL to merge from
-  -r, --revisions <list>    Revisions or ranges, e.g. 1001,1002-1005,1008  (required)
+  -r, --revisions <list>    Revisions or ranges, e.g. 1001,1002-1005,1008
+  -v, --verbose             Show ignored/reverted file details in console output
+      --dry-run             List eligible revisions and their log messages, no merge
+      --commit              Auto svn commit after successful merge (uses generated message file)
   -V, --version             Output version number
   -h, --help                Display help
 ```
@@ -43,8 +48,15 @@ Options:
 ### Examples
 
 ```bash
-# Auto-discover svn-merge-tool.yaml from cwd upward
+# Auto-discover svnmerge.yaml from cwd upward
 svn-merge-tool -r 84597-84608,84610
+
+# Preview eligible revisions without merging
+svn-merge-tool --dry-run
+svn-merge-tool --dry-run -r 84597-84610
+
+# Merge and auto-commit using the generated message file
+svn-merge-tool -r 1001 --commit
 
 # Explicit config file
 svn-merge-tool -c ./svn.yaml -r 84597-84608,84610
@@ -135,9 +147,20 @@ Both files are written to the `outputDir` (default: `.svnmerge/` under workspace
 
 ## Changelog
 
+### 1.0.5
+- `--commit` flag and `commit: true` config key: automatically run `svn commit` after a successful merge, using the generated `message.txt` as the commit log
+- YAML key renamed from `autoCommit` to `commit` to match the CLI flag
+- Commit is skipped if there are any failures or unresolved conflicts
+
+### 1.0.4
+- `--dry-run` flag: preview eligible revisions and their log messages without making any changes
+- Config file renamed from `svn-merge-tool.yaml` to `svnmerge.yaml`
+- `verbose: true` config key: mirror of the `-v` flag
+- Output filenames now include a timestamp prefix (`yyyymmddhhmmss-log.txt`, `yyyymmddhhmmss-message.txt`)
+
 ### 1.0.3
 - YAML config keys renamed to camelCase: `fromUrl`, `outputDir`, `ignoreMerge`
-- `outputDir` config field: customize output directory for `svn-merge-tool.log` and `svn-merge-message.txt`
+- `outputDir` config field: customize output directory for log and message files
 - `-r` is now optional: omit to merge all eligible revisions (`svn mergeinfo --show-revs eligible`), with confirmation prompt
 - Path examples in docs/help text changed to Unix style
 

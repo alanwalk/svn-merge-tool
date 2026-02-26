@@ -10,8 +10,10 @@
 - **文本 / 属性冲突** → 接受对方修改（`theirs-full`）
 - **树冲突** → 保留本地版本（`working`）
 - **忽略规则** — 匹配 `ignore-merge` 的路径始终丢弃（revert），即使没有产生冲突
-- 控制台仅显示精简进度（带颜色），完整日志实时写入 `svn-merge-tool.log`
-- 生成 `svn-merge-message.txt`，包含压缩修订版本范围和 `svn log` 正文
+- `--dry-run` 模式 — 预览待合并的修订版本及其日志，不执行任何实际修改
+- `--commit` — 合并成功后自动执行 `svn commit`，以生成的 message.txt 内容作为提交日志
+- 控制台仅显示精简进度（带颜色），完整日志实时写入带时间戳的日志文件
+- 生成带时间戳的 `message.txt`，包含压缩修订版本范围和 `svn log` 正文
 - 合并前自动执行 `svn update`，检测工作副本脏状态并提示 `[y/N]`
 - 支持 YAML 配置文件，从当前目录向上自动查找
 
@@ -41,8 +43,10 @@ svn-merge-tool [选项]
   -c, --config <path>       YAML 配置文件路径
   -w, --workspace <path>    SVN 工作副本目录
   -f, --from-url <url>      合并来源分支 URL
-  -r, --revisions <list>    修订版本或范围，例如 1001,1002-1005,1008（必填）
+  -r, --revisions <list>    修订版本或范围，例如 1001,1002-1005,1008
   -v, --verbose             在控制台显示 ignored/reverted 文件详情
+      --dry-run             列出待合并修订版本及日志，不执行合并
+      --commit              合并成功后自动执行 svn commit（使用生成的 message.txt）
   -V, --version             显示版本号
   -h, --help                显示帮助
 ```
@@ -50,8 +54,15 @@ svn-merge-tool [选项]
 ### 示例
 
 ```bash
-# 自动向上查找 svn-merge-tool.yaml
+# 自动向上查找 svnmerge.yaml
 svn-merge-tool -r 84597-84608,84610
+
+# 预览待合并修订版本，不执行合并
+svn-merge-tool --dry-run
+svn-merge-tool --dry-run -r 84597-84610
+
+# 合并后自动提交，使用生成的 message 文件作为日志
+svn-merge-tool -r 1001 --commit
 
 # 指定配置文件
 svn-merge-tool -c ./svn.yaml -r 84597-84608,84610
@@ -74,6 +85,8 @@ svn-merge-tool -v -r 1001,1002
 workspace: /path/to/working-copy
 fromUrl: http://svn.example.com/branches/feature
 outputDir: /logs/svn          # 可选
+commit: true                  # 可选：合并成功后自动 svn commit
+verbose: false                # 可选：显示 ignored/reverted 详情（等同于 -v）
 ignoreMerge:
   - src/thirdparty/generated
   - assets/auto-generated/catalog.json
@@ -84,9 +97,11 @@ ignoreMerge:
 | `workspace`   | SVN 工作副本路径                                                                           |
 | `fromUrl`     | 合并来源分支 URL                                                                           |
 | `outputDir`   | 输出文件目录。绝对路径或相对于 workspace 的路径，默认为 workspace 下的 `.svnmerge/` 目录。 |
+| `commit`      | 设为 `true` 则合并成功后自动执行 `svn commit`（等同于 `--commit`）                        |
+| `verbose`     | 设为 `true` 则在控制台显示 ignored/reverted 文件详情（等同于 `-v`）                       |
 | `ignoreMerge` | 需要始终丢弃的工作副本相对路径（文件或目录）                                               |
 
-命令行选项 `-w` 和 `-f` 会覆盖配置文件中的对应值。
+命令行选项 `-w`、`-f`、`-v`、`--commit` 会覆盖配置文件中的对应值。
 
 ## 输出说明
 
@@ -145,6 +160,17 @@ Conflict Summary:
 - [js-yaml](https://github.com/nodeca/js-yaml) — YAML 配置解析
 
 ## 更新日志
+
+### 1.0.5
+- 新增 `--commit` 参数和 `commit: true` 配置项：合并成功后自动执行 `svn commit`，以生成的 `message.txt` 内容作为提交日志
+- YAML 配置键从 `autoCommit` 改为 `commit`，与 CLI 参数保持一致
+- 存在失败或未解决冲突时跳过自动提交
+
+### 1.0.4
+- 新增 `--dry-run` 参数：预览待合并修订版本及其日志，不执行任何实际修改
+- 配置文件名从 `svn-merge-tool.yaml` 改为 `svnmerge.yaml`
+- 新增 `verbose: true` 配置项：等同于 `-v` 参数
+- 输出文件名现在带有时间戳前缀（`yyyymmddhhmmss-log.txt`、`yyyymmddhhmmss-message.txt`）
 
 ### 1.0.3
 - YAML 配置字段重命名为小驼峰格式：`fromUrl`、`outputDir`、`ignoreMerge`

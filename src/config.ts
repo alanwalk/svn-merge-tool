@@ -31,7 +31,7 @@ export interface ConfigFile {
    * Automatically run `svn commit` after a successful merge.
    * Mirror of the --commit CLI flag.
    */
-  autoCommit?: boolean;
+  commit?: boolean;
 }
 
 /**
@@ -103,10 +103,10 @@ export function loadConfig(configPath: string): ConfigFile {
     config.verbose = verbose;
   }
 
-  // autoCommit
-  const autoCommit = doc['autoCommit'];
-  if (typeof autoCommit === 'boolean') {
-    config.autoCommit = autoCommit;
+  // commit
+  const commit = doc['commit'];
+  if (typeof commit === 'boolean') {
+    config.commit = commit;
   }
 
   return config;
