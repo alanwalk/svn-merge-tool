@@ -248,6 +248,18 @@ function parseSvnLogOutput(stdout: string, resultMap: Map<number, string>): void
 }
 
 /**
+ * Run `svn commit` on the workspace with the given message.
+ * Throws on non-zero exit code.
+ */
+export function svnCommit(workspace: string, message: string): string {
+  const { stdout, stderr, exitCode } = runSvn(['commit', '-m', message, workspace]);
+  if (exitCode !== 0) {
+    throw new Error(`svn commit failed (exit ${exitCode}):\n${stderr || stdout}`);
+  }
+  return stdout.trim();
+}
+
+/**
  * Fetch log message bodies for multiple revisions in batched `svn log` calls.
  * Splits revisions into chunks to avoid buffer overflow on large revision sets.
  * Returns a Map<revision, body>; revisions with no message map to ''.

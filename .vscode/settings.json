@@ -3,6 +3,7 @@
         "npm install": true,
         "svn-merge-tool": true,
         "git commit": true,
-        "npm publish": true
+        "npm publish": true,
+        "git push": true
     }
 }

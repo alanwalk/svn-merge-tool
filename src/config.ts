@@ -27,6 +27,11 @@ export interface ConfigFile {
   outputDir?: string;
   /** Mirror of the -v / --verbose CLI flag. */
   verbose?: boolean;
+  /**
+   * Automatically run `svn commit` after a successful merge.
+   * Mirror of the --commit CLI flag.
+   */
+  autoCommit?: boolean;
 }
 
 /**
@@ -96,6 +101,12 @@ export function loadConfig(configPath: string): ConfigFile {
   const verbose = doc['verbose'];
   if (typeof verbose === 'boolean') {
     config.verbose = verbose;
+  }
+
+  // autoCommit
+  const autoCommit = doc['autoCommit'];
+  if (typeof autoCommit === 'boolean') {
+    config.autoCommit = autoCommit;
   }
 
   return config;

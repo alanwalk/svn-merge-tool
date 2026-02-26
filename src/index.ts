@@ -7,7 +7,8 @@ import { findDefaultConfig, loadConfig } from './config';
 import { Logger } from './logger';
 import { run } from './merger';
 import { getMessageFilePath, writeMessageFile } from './message';
-import { svnEligibleRevisions, svnInfo, svnLogBatch, svnStatusDirty, svnUpdate } from './svn';
+import * as fs from 'fs';
+import { svnCommit, svnEligibleRevisions, svnInfo, svnLogBatch, svnStatusDirty, svnUpdate } from './svn';
 import { MergeOptions } from './types';
 import { compressRevisions, groupSummaryByType, relPath } from './utils';
 
@@ -38,6 +39,7 @@ program
   .option('-f, --from-url <url>', 'Source branch URL to merge from')
   .option('-v, --verbose', 'Show ignored/reverted file details in console output')
   .option('--dry-run', 'List eligible revisions and their log messages without merging')
+  .option('--commit', 'Automatically run svn commit after a successful merge, using the generated message file')
   .option(
     '-r, --revisions <revisions>',
     'Revisions or ranges to merge, e.g. 1001,1002-1005,1008. Omit to merge all eligible revisions.'
@@ -49,6 +51,7 @@ Config file (YAML format):
   workspace: /path/to/working-copy
   fromUrl: http://svn.example.com/branches/feature
   outputDir: /logs/svn          # optional: absolute or workspace-relative
+  autoCommit: true              # optional: auto svn commit after successful merge
   ignoreMerge:
     - src/thirdparty/generated
     - assets/auto-generated/catalog.json
@@ -61,6 +64,7 @@ Examples:
   svn-merge-tool                                  # merge all eligible revisions (prompts confirm)
   svn-merge-tool --dry-run                        # preview eligible revisions and log, no merge
   svn-merge-tool -r 1001                          # merge specific revision
+  svn-merge-tool -r 1001 --commit                 # merge and auto-commit using generated message
   svn-merge-tool --dry-run -r 84597-84610         # preview specific revisions and log
   svn-merge-tool -c ./svn.yaml -r 84597-84608,84610
   svn-merge-tool -w /path/to/copy -f http://svn.example.com/branches/feature -r 1001
@@ -70,7 +74,7 @@ Examples:
 
 program.parse(process.argv);
 
-const opts = program.opts<{ config?: string; workspace?: string; fromUrl?: string; revisions?: string; verbose?: boolean; dryRun?: boolean }>();
+const opts = program.opts<{ config?: string; workspace?: string; fromUrl?: string; revisions?: string; verbose?: boolean; dryRun?: boolean; commit?: boolean }>();
 
 // ─── Load config file (if provided) ──────────────────────────────────────────
 let configWorkspace: string | undefined;
@@ -78,6 +82,7 @@ let configFromUrl: string | undefined;
 let configIgnoreMerge: string[] = [];
 let configOutputDir: string | undefined;
 let configVerbose = false;
+let configAutoCommit = false;
 
 // Resolve config path: explicit -c, or auto-discover svn-merge-config.ini
 const configPath = opts.config ?? findDefaultConfig();
@@ -90,6 +95,7 @@ if (configPath) {
     configIgnoreMerge = cfg.ignoreMerge ?? [];
     configOutputDir = cfg.outputDir;
     configVerbose = cfg.verbose ?? false;
+    configAutoCommit = cfg.autoCommit ?? false;
     const label = opts.config ? 'Config loaded' : 'Config auto-detected';
     console.log(CYAN(`${label}: ${path.resolve(configPath)}`));
   } catch (e: unknown) {
@@ -375,8 +381,49 @@ console.log(
     .filter(Boolean)
     .join('  ')
 );
+const msgFilePath = getMessageFilePath(outputDir, startTs);
 console.log(`Log: ${logger.getLogPath()}`);
-console.log(`Msg: ${getMessageFilePath(outputDir, startTs)}`);
+console.log(`Msg: ${msgFilePath}`);
+
+// ─── Auto-commit ─────────────────────────────────────────────────────────────
+const shouldCommit = (opts.commit ?? false) || configAutoCommit;
+if (shouldCommit) {
+  if (summary.failed > 0 || hasActiveConflicts) {
+    console.log(DONE_YELLOW('\nAuto-commit skipped: merge has failures or unresolved conflicts.'));
+    logger.log('Auto-commit skipped: merge has failures or unresolved conflicts.');
+  } else if (summary.succeeded === 0) {
+    console.log(DONE_YELLOW('\nAuto-commit skipped: no revisions were successfully merged.'));
+    logger.log('Auto-commit skipped: no revisions were successfully merged.');
+  } else {
+    let commitMsg = '';
+    try {
+      commitMsg = fs.readFileSync(msgFilePath, 'utf8');
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error(DONE_RED(`\nAuto-commit failed: cannot read message file: ${msg}`));
+      logger.log(`Auto-commit failed: cannot read message file: ${msg}`);
+      logger.close();
+      process.exit(1);
+    }
+    console.log(DONE_GREEN('\nRunning svn commit...'));
+    logger.log('Running svn commit...');
+    try {
+      const commitOut = svnCommit(workspace, commitMsg);
+      console.log(DONE_GREEN('Commit successful.'));
+      if (commitOut) {
+        console.log(commitOut);
+        logger.log(commitOut);
+      }
+      logger.log('Commit successful.');
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error(DONE_RED(`Auto-commit failed: ${msg}`));
+      logger.log(`Auto-commit failed: ${msg}`);
+      logger.close();
+      process.exit(1);
+    }
+  }
+}
 
 logger.close();
 process.exit(summary.failed > 0 ? 1 : 0);
