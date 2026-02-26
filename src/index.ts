@@ -7,7 +7,7 @@ import * as path from 'path';
 import { findDefaultConfig, loadConfig } from './config';
 import { Logger } from './logger';
 import { run } from './merger';
-import { getMessageFilePath, writeMessageFile } from './message';
+import { buildMessage } from './message';
 import {
     svnCommit, svnEligibleRevisions, svnInfo, svnLogBatch, svnStatusDirty, svnUpdate
 } from './svn';
@@ -376,9 +376,12 @@ if (hasActiveConflicts || summary.failed > 0 || (verbose && (uniqueReverted.leng
   }
 }
 
-// ─── Generate merge message file ─────────────────────────────────────────────
+// ─── Generate merge message ───────────────────────────────────────────────────
 console.log('\nGenerating merge message...');
-writeMessageFile(summary, rawFromUrl, outputDir, startTs);
+const mergeMessage = buildMessage(summary, rawFromUrl);
+logger.appendRaw('\n' + '='.repeat(72) + '\n');
+logger.appendRaw(mergeMessage);
+logger.appendRaw('='.repeat(72) + '\n');
 
 // ─── Console: done line ───────────────────────────────────────────────────────
 
@@ -393,9 +396,7 @@ console.log(
     .filter(Boolean)
     .join('  ')
 );
-const msgFilePath = getMessageFilePath(outputDir, startTs);
 console.log(`Log: ${logger.getLogPath()}`);
-console.log(`Msg: ${msgFilePath}`);
 
 // ─── Auto-commit ─────────────────────────────────────────────────────────────
 const shouldCommit = (opts.commit ?? false) || configCommit;
@@ -407,20 +408,10 @@ if (shouldCommit) {
     console.log(DONE_YELLOW('\nAuto-commit skipped: no revisions were successfully merged.'));
     logger.log('Auto-commit skipped: no revisions were successfully merged.');
   } else {
-    let commitMsg = '';
-    try {
-      commitMsg = fs.readFileSync(msgFilePath, 'utf8');
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      console.error(DONE_RED(`\nAuto-commit failed: cannot read message file: ${msg}`));
-      logger.log(`Auto-commit failed: cannot read message file: ${msg}`);
-      logger.close();
-      process.exit(1);
-    }
     console.log(DONE_GREEN('\nRunning svn commit...'));
     logger.log('Running svn commit...');
     try {
-      const commitOut = svnCommit(workspace, commitMsg);
+      const commitOut = svnCommit(workspace, mergeMessage);
       console.log(DONE_GREEN('Commit successful.'));
       if (commitOut) {
         console.log(commitOut);

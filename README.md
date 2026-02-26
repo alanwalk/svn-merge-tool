@@ -12,8 +12,8 @@ A CLI tool for merging specific SVN revisions one by one, with automatic conflic
 - **Ignore rules** — paths matching `ignore-merge` patterns are always discarded (reverted), even when they produce no conflict
 - `--dry-run` mode — preview eligible revisions and their log messages without making any changes
 - `-C, --commit` — automatically run `svn commit` after a successful merge, using the generated message file as the commit log
-- Minimal console progress with color-coded results; full details streamed to a timestamped log file
-- Generates a timestamped `message.txt` with compressed revision range + `svn log` bodies
+- Minimal console progress with color-coded results; full details streamed to `svnmerge-<timestamp>.log`
+- Commit message (revision range + `svn log` bodies) appended to the log file at the end of each run
 - Pre-merge `svn update` and dirty working-copy check with `[y/N]` prompt
 - YAML config file with auto-discovery walking up from `cwd`
 
@@ -91,13 +91,13 @@ ignore:
   - assets/auto-generated/catalog.json
 ```
 
-| Key         | Description                                                                                                   |
-| ----------- | ------------------------------------------------------------------------------------------------------------- |
-| `workspace` | Path to the SVN working copy                                                                                  |
-| `from`      | Source branch URL (same as `-f`)                                                                              |
-| `output`    | Directory for output files. Absolute path or relative to workspace. Defaults to `.svnmerge/` under workspace. |
-| `commit`    | Set to `true` to automatically run `svn commit` after a successful merge (same as `-C`)                       |
-| `verbose`   | Set to `true` to show ignored/reverted file details in console (same as `-V`)                                 |
+| Key         | Description                                                                                                      |
+| ----------- | ---------------------------------------------------------------------------------------------------------------- |
+| `workspace` | Path to the SVN working copy                                                                                     |
+| `from`      | Source branch URL (same as `-f`)                                                                                 |
+| `output`    | Directory for output files. Absolute path or relative to workspace. Defaults to `.svnmerge/` under workspace.    |
+| `commit`    | Set to `true` to automatically run `svn commit` after a successful merge (same as `-C`)                          |
+| `verbose`   | Set to `true` to show ignored/reverted file details in console (same as `-V`)                                    |
 | `ignore`    | List of workspace-relative paths (files or folders) to always discard. CLI `-i` paths are appended to this list. |
 
 Command-line options `-w`, `-f`, `-o`, `-V`, `-C` override the corresponding config file values.
@@ -134,12 +134,11 @@ Conflict Summary:
 
 ### Output Files
 
-Both files are written to the `output` directory (default: `.svnmerge/` under workspace).
+The log file is written to the `output` directory (default: `.svnmerge/` under workspace).
 
-| File                         | Description                                                   |
-| ---------------------------- | ------------------------------------------------------------- |
-| `yyyymmddhhmmss-log.txt`     | Full merge log, streamed in real time                         |
-| `yyyymmddhhmmss-message.txt` | Commit message — compressed revision range + `svn log` bodies |
+| File                        | Description                                                                          |
+| --------------------------- | ------------------------------------------------------------------------------------ |
+| `svnmerge-yyyymmddhhmmss.log` | Full merge log streamed in real time, with the commit message block appended at the end |
 
 ## Conflict Resolution Rules
 
@@ -158,6 +157,10 @@ Both files are written to the `output` directory (default: `.svnmerge/` under wo
 - [js-yaml](https://github.com/nodeca/js-yaml) — YAML config parsing
 
 ## Changelog
+
+### 1.0.7
+- Log file renamed from `yyyymmddhhmmss-log.txt` to `svnmerge-yyyymmddhhmmss.log`
+- Commit message is now appended to the log file instead of a separate `message.txt`
 
 ### 1.0.6
 - `-f, --from` replaces `-f, --from-url` (shorter long flag)

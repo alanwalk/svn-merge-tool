@@ -23,7 +23,7 @@ export class Logger {
 
   constructor(outputDir: string, startTs: string) {
     fs.mkdirSync(outputDir, { recursive: true });
-    this.logPath = path.join(outputDir, `${startTs}-log.txt`);
+    this.logPath = path.join(outputDir, `svnmerge-${startTs}.log`);
     // Open (create or truncate) the log file immediately
     this.fd = fs.openSync(this.logPath, 'w');
   }
@@ -39,6 +39,15 @@ export class Logger {
     }
     try {
       fs.writeSync(this.fd, line);
+    } catch {
+      // best-effort
+    }
+  }
+
+  /** Append raw text to the log file as-is (no timestamp, no ANSI stripping). */
+  appendRaw(text: string): void {
+    try {
+      fs.writeSync(this.fd, text);
     } catch {
       // best-effort
     }

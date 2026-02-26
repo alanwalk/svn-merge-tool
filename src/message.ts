@@ -1,6 +1,3 @@
-import * as fs from 'fs';
-import * as path from 'path';
-
 import { svnLogBatch } from './svn';
 import { MergeSummary } from './types';
 import { branchName, compressRevisions } from './utils';
@@ -8,7 +5,7 @@ import { branchName, compressRevisions } from './utils';
 const ENTRY_SEP = '........';
 
 /**
- * Generate and write svn-merge-message.txt to the current working directory.
+ * Build the merge message string (to be appended to the log file).
  *
  * Format:
  *   Merged revision(s) 83247, 84556, 84587-84588 from trunk:
@@ -17,13 +14,10 @@ const ENTRY_SEP = '........';
  *   ........
  *   ...
  */
-export function writeMessageFile(
+export function buildMessage(
   summary: MergeSummary,
   fromUrl: string,
-  outputDir: string,
-  startTs: string,
-): void {
-  const outPath = path.join(outputDir, `${startTs}-message.txt`);
+): string {
   const branch = branchName(fromUrl);
 
   // Only include successfully merged revisions
@@ -49,16 +43,5 @@ export function writeMessageFile(
     lines.push(ENTRY_SEP);
   }
 
-  try {
-    fs.writeFileSync(outPath, lines.join('\n') + '\n', 'utf8');
-  } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e);
-    process.stderr.write(`Warning: could not write message file "${outPath}": ${msg}\n`);
-  }
-
-  return;
-}
-
-export function getMessageFilePath(outputDir: string, startTs: string): string {
-  return path.join(outputDir, `${startTs}-message.txt`);
+  return lines.join('\n') + '\n';
 }

@@ -12,8 +12,8 @@
 - **忽略规则** — 匹配 `ignore-merge` 的路径始终丢弃（revert），即使没有产生冲突
 - `--dry-run` 模式 — 预览待合并的修订版本及其日志，不执行任何实际修改
 - `--commit` — 合并成功后自动执行 `svn commit`，以生成的 message.txt 内容作为提交日志
-- 控制台仅显示精简进度（带颜色），完整日志实时写入带时间戳的日志文件
-- 生成带时间戳的 `message.txt`，包含压缩修订版本范围和 `svn log` 正文
+- 控制台仅显示精简进度（带颜色），完整日志实时写入 `svnmerge-<时间戳>.log`
+- 提交信息（修订版本范围 + `svn log` 正文）追加到日志文件末尾
 - 合并前自动执行 `svn update`，检测工作副本脏状态并提示 `[y/N]`
 - 支持 YAML 配置文件，从当前目录向上自动查找
 
@@ -104,7 +104,7 @@ ignore:
 | `output`    | 输出文件目录。绝对路径或相对于 workspace 的路径，默认为 workspace 下的 `.svnmerge/` 目录。 |
 | `commit`    | 设为 `true` 则合并成功后自动执行 `svn commit`（等同于 `-C`）                               |
 | `verbose`   | 设为 `true` 则在控制台显示 ignored/reverted 文件详情（等同于 `-V`）                        |
-| `ignore`    | 需要始终丢弃的工作副本相对路径（文件或目录）。`-i` 传入的路径会追加到此列表。 |
+| `ignore`    | 需要始终丢弃的工作副本相对路径（文件或目录）。`-i` 传入的路径会追加到此列表。              |
 
 命令行选项 `-w`、`-f`、`-o`、`-V`、`-C` 会覆盖配置文件中的对应值。
 
@@ -141,12 +141,11 @@ Conflict Summary:
 
 ### 输出文件
 
-两个文件均写入 `output` 目录（默认为 workspace 下的 `.svnmerge/` 目录）。
+日志文件写入 `output` 目录（默认为 workspace 下的 `.svnmerge/` 目录）。
 
-| 文件                         | 说明                                            |
-| ---------------------------- | ----------------------------------------------- |
-| `yyyymmddhhmmss-log.txt`     | 完整合并日志，实时写入                          |
-| `yyyymmddhhmmss-message.txt` | 提交信息，包含压缩修订版本范围 + `svn log` 正文 |
+| 文件                          | 说明                                                                  |
+| ----------------------------- | ---------------------------------------------------------------------- |
+| `svnmerge-yyyymmddhhmmss.log` | 完整合并日志实时写入，提交信息块追加在最后 |
 
 ## 冲突解决规则
 
@@ -165,6 +164,10 @@ Conflict Summary:
 - [js-yaml](https://github.com/nodeca/js-yaml) — YAML 配置解析
 
 ## 更新日志
+
+### 1.0.7
+- 日志文件重命名：`yyyymmddhhmmss-log.txt` 改为 `svnmerge-yyyymmddhhmmss.log`
+- 提交信息内容不再单独生成 `message.txt`，改为追加到日志文件末尾
 
 ### 1.0.6
 - `-f, --from` 替代 `-f, --from-url`（长标志更简洁）
