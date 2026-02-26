@@ -58,7 +58,7 @@ svn-merge-tool -c ./svn.yaml -w /path/to/override -r 1001,1002,1003
 
 ## Config File
 
-The tool searches for `svn-merge-tool.yaml` (or `.yml`) starting from the current directory and walking up to the filesystem root.
+The tool searches for `svnmerge.yaml` (or `.yml`) starting from the current directory and walking up to the filesystem root.
 
 ```yaml
 workspace: /path/to/working-copy
@@ -69,12 +69,12 @@ ignoreMerge:
   - assets/auto-generated/catalog.json
 ```
 
-| Key           | Description                                                                                                                    |
-| ------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `workspace`   | Path to the SVN working copy                                                                                                   |
-| `fromUrl`     | Source branch URL                                                                                                              |
-| `outputDir`   | Directory for `svn-merge-tool.log` and `svn-merge-message.txt`. Absolute path or relative to workspace. Defaults to workspace. |
-| `ignoreMerge` | List of workspace-relative paths (files or folders) to always discard                                                          |
+| Key           | Description                                                                                                   |
+| ------------- | ------------------------------------------------------------------------------------------------------------- |
+| `workspace`   | Path to the SVN working copy                                                                                  |
+| `fromUrl`     | Source branch URL                                                                                             |
+| `outputDir`   | Directory for output files. Absolute path or relative to workspace. Defaults to `.svnmerge/` under workspace. |
+| `ignoreMerge` | List of workspace-relative paths (files or folders) to always discard                                         |
 
 Command-line options `-w` and `-f` override the config file values.
 
@@ -110,10 +110,12 @@ Conflict Summary:
 
 ### Output Files
 
-| File                    | Description                                                   |
-| ----------------------- | ------------------------------------------------------------- |
-| `svn-merge-tool.log`    | Full merge log, streamed in real time                         |
-| `svn-merge-message.txt` | Commit message — compressed revision range + `svn log` bodies |
+Both files are written to the `outputDir` (default: `.svnmerge/` under workspace).
+
+| File                         | Description                                                   |
+| ---------------------------- | ------------------------------------------------------------- |
+| `yyyymmddhhmmss-log.txt`     | Full merge log, streamed in real time                         |
+| `yyyymmddhhmmss-message.txt` | Commit message — compressed revision range + `svn log` bodies |
 
 ## Conflict Resolution Rules
 

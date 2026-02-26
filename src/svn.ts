@@ -14,11 +14,12 @@ function decodeOutput(buf: Buffer): string {
 }
 
 /** Run an SVN command synchronously, returning { stdout, stderr, exitCode } */
-function runSvn(args: string[], cwd?: string): { stdout: string; stderr: string; exitCode: number } {
+function runSvn(args: string[], cwd?: string, maxBuffer?: number): { stdout: string; stderr: string; exitCode: number } {
   const result = spawnSync('svn', args, {
     cwd,
     encoding: 'buffer',
     windowsHide: true,
+    maxBuffer: maxBuffer ?? 64 * 1024 * 1024, // 64 MB default
   });
 
   const stdout = result.stdout ? decodeOutput(result.stdout) : '';
@@ -96,67 +97,40 @@ export function svnMerge(
 }
 
 /**
- * Parse `svn status` output and return all conflicted files.
- * Column 1: 'C' = text conflict
- * Column 7: 'C' = tree conflict
- * Column 2: 'C' = property conflict
+ * Combined parse of `svn status` — returns conflicts AND non-conflict
+ * modifications in a single SVN call.
+ * Replaces calling svnStatusConflicts + svnStatusModifications separately.
  */
-export function svnStatusConflicts(workspace: string): ConflictInfo[] {
+export function svnStatusAfterMerge(workspace: string): {
+  conflicts: ConflictInfo[];
+  modifications: { path: string; isDirectory: boolean }[];
+} {
   const { stdout } = runSvn(['status', workspace]);
   const conflicts: ConflictInfo[] = [];
-
-  for (const line of stdout.split('\n')) {
-    if (line.length < 2) continue;
-
-    const col0 = line[0]; // text conflict marker
-    const col1 = line[1]; // property conflict marker
-    const col6 = line.length > 6 ? line[6] : ' '; // tree conflict marker
-    // path starts at column 8 in standard svn status output
-    const path = line.slice(8).trim();
-
-    if (!path) continue;
-
-    if (col6 === 'C') {
-      // Tree conflict — resolve with 'working' (keep local)
-      conflicts.push({ path, type: 'tree' as ConflictType, resolution: 'working', isDirectory: isDir(path), ignored: false });
-    } else if (col0 === 'C') {
-      // Text conflict — resolve with 'theirs-full' (accept incoming)
-      conflicts.push({ path, type: 'text' as ConflictType, resolution: 'theirs-full', isDirectory: isDir(path), ignored: false });
-    } else if (col1 === 'C') {
-      // Property conflict — resolve with 'theirs-full' (accept incoming)
-      conflicts.push({ path, type: 'property' as ConflictType, resolution: 'theirs-full', isDirectory: isDir(path), ignored: false });
-    }
-  }
-
-  return conflicts;
-}
-
-/**
- * Return all modified (non-conflict, non-unversioned) paths after a merge.
- * Used to detect ignored paths that were silently changed (not conflicted).
- */
-export function svnStatusModifications(workspace: string): { path: string; isDirectory: boolean }[] {
-  const { stdout } = runSvn(['status', workspace]);
-  const list: { path: string; isDirectory: boolean }[] = [];
+  const modifications: { path: string; isDirectory: boolean }[] = [];
 
   for (const line of stdout.split(/\r?\n/)) {
-    if (line.length < 9) continue;
+    if (line.length < 2) continue;
     const col0 = line[0];
     const col1 = line[1];
     const col6 = line.length > 6 ? line[6] : ' ';
+    const filePath = line.slice(8).trim();
+    if (!filePath) continue;
 
-    // Only interested in changed (M A D R ! ~) paths
-    if (col0 === ' ' || col0 === '?' || col0 === 'X') continue;
-    // Skip conflicts — those are handled separately by svnStatusConflicts
-    if (col0 === 'C' || col1 === 'C' || col6 === 'C') continue;
-
-    const path = line.slice(8).trim();
-    if (!path) continue;
-
-    list.push({ path, isDirectory: isDir(path) });
+    if (col6 === 'C') {
+      conflicts.push({ path: filePath, type: 'tree', resolution: 'working', isDirectory: isDir(filePath), ignored: false });
+    } else if (col0 === 'C') {
+      conflicts.push({ path: filePath, type: 'text', resolution: 'theirs-full', isDirectory: isDir(filePath), ignored: false });
+    } else if (col1 === 'C') {
+      conflicts.push({ path: filePath, type: 'property', resolution: 'theirs-full', isDirectory: isDir(filePath), ignored: false });
+    } else {
+      // Non-conflict modified paths (skip clean / unversioned / external)
+      if (col0 === ' ' || col0 === '?' || col0 === 'X') continue;
+      modifications.push({ path: filePath, isDirectory: isDir(filePath) });
+    }
   }
 
-  return list;
+  return { conflicts, modifications };
 }
 
 /**
@@ -241,4 +215,58 @@ export function svnLog(revision: number, fromUrl: string): string {
   while (body.length > 0 && body[body.length - 1].trim() === '') body.pop();
 
   return body.join('\n');
+}
+
+/**
+ * Fetch log message bodies for multiple revisions in a single `svn log` call.
+ * Returns a Map<revision, body>; revisions with no message map to ''.
+ */
+/** Parse `svn log` stdout text into a Map<revision, body>. */
+function parseSvnLogOutput(stdout: string, resultMap: Map<number, string>): void {
+  const sepRe = /^-{10,}$/;
+  const headerRe = /^r(\d+)\s*\|/;
+  const lines = stdout.split(/\r?\n/);
+  let i = 0;
+
+  while (i < lines.length) {
+    if (!sepRe.test(lines[i])) { i++; continue; }
+    i++; // advance past separator to header
+    if (i >= lines.length) break;
+    const headerMatch = lines[i].match(headerRe);
+    if (!headerMatch) { i++; continue; }
+    const rev = parseInt(headerMatch[1], 10);
+    i++; // advance past header
+    if (i < lines.length && lines[i].trim() === '') i++; // skip blank line after header
+    const bodyLines: string[] = [];
+    while (i < lines.length && !sepRe.test(lines[i])) {
+      bodyLines.push(lines[i]);
+      i++;
+    }
+    while (bodyLines.length > 0 && bodyLines[bodyLines.length - 1].trim() === '') bodyLines.pop();
+    if (resultMap.has(rev)) resultMap.set(rev, bodyLines.join('\n'));
+  }
+}
+
+/**
+ * Fetch log message bodies for multiple revisions in batched `svn log` calls.
+ * Splits revisions into chunks to avoid buffer overflow on large revision sets.
+ * Returns a Map<revision, body>; revisions with no message map to ''.
+ */
+export function svnLogBatch(revisions: number[], fromUrl: string): Map<number, string> {
+  const resultMap = new Map<number, string>(revisions.map((r) => [r, '']));
+  if (revisions.length === 0) return resultMap;
+
+  const CHUNK_SIZE = 200;
+  const sorted = [...revisions].sort((a, b) => a - b);
+
+  for (let start = 0; start < sorted.length; start += CHUNK_SIZE) {
+    const chunk = sorted.slice(start, start + CHUNK_SIZE);
+    const min = chunk[0];
+    const max = chunk[chunk.length - 1];
+    const { stdout, exitCode } = runSvn(['log', fromUrl, '-r', `${min}:${max}`]);
+    if (exitCode !== 0 || !stdout.trim()) continue;
+    parseSvnLogOutput(stdout, resultMap);
+  }
+
+  return resultMap;
 }

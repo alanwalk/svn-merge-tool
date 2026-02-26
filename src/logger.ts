@@ -21,9 +21,9 @@ export class Logger {
   private logPath: string;
   private fd: number;
 
-  constructor(outputDir?: string) {
-    const dir = outputDir ?? process.cwd();
-    this.logPath = path.join(dir, 'svn-merge-tool.log');
+  constructor(outputDir: string, startTs: string) {
+    fs.mkdirSync(outputDir, { recursive: true });
+    this.logPath = path.join(outputDir, `${startTs}-log.txt`);
     // Open (create or truncate) the log file immediately
     this.fd = fs.openSync(this.logPath, 'w');
   }

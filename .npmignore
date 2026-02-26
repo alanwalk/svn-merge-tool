@@ -1,6 +1,6 @@
 src/
 .vscode/
 *.log
-svn-merge-message.txt
+.svnmerge/
 .gitignore
 tsconfig.json

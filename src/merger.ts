@@ -1,5 +1,5 @@
 import { Logger } from './logger';
-import { svnMerge, svnResolve, svnRevert, svnStatusConflicts, svnStatusModifications } from './svn';
+import { svnMerge, svnResolve, svnRevert, svnStatusAfterMerge } from './svn';
 import {
     ConflictInfo, MergeOptions, MergeSummary, RevertedInfo, RevisionMergeResult
 } from './types';
@@ -42,7 +42,9 @@ function mergeRevision(
     logger.log(`[r${revision}] Warning: ${stderr.trim()}`);
   }
 
-  const conflicts: ConflictInfo[] = svnStatusConflicts(workspace).map((c) => ({
+  const { conflicts: rawConflicts, modifications } = svnStatusAfterMerge(workspace);
+
+  const conflicts: ConflictInfo[] = rawConflicts.map((c) => ({
     ...c,
     // Ignored paths always resolve with 'working' (discard incoming changes)
     resolution: isIgnored(c.path, workspace, ignorePaths)
@@ -71,7 +73,6 @@ function mergeRevision(
   // ── Revert ignored paths that were modified without a conflict ──────────────
   const conflictPaths = new Set(conflicts.map((c) => c.path));
   const reverted: RevertedInfo[] = [];
-  const modifications = svnStatusModifications(workspace);
   for (const mod of modifications) {
     if (!conflictPaths.has(mod.path) && isIgnored(mod.path, workspace, ignorePaths)) {
       const { success, message } = svnRevert(mod.path, workspace);

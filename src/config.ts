@@ -20,11 +20,13 @@ export interface ConfigFile {
   /** Workspace-relative paths (files or folders) to silently discard on conflict */
   ignoreMerge?: string[];
   /**
-   * Directory where svn-merge-tool.log and svn-merge-message.txt are written.
+   * Directory where log and message files are written.
    * Absolute path, or relative to the workspace directory.
    * Defaults to the workspace directory.
    */
   outputDir?: string;
+  /** Mirror of the -v / --verbose CLI flag. */
+  verbose?: boolean;
 }
 
 /**
@@ -90,6 +92,12 @@ export function loadConfig(configPath: string): ConfigFile {
     config.outputDir = outputDir.trim();
   }
 
+  // verbose
+  const verbose = doc['verbose'];
+  if (typeof verbose === 'boolean') {
+    config.verbose = verbose;
+  }
+
   return config;
 }
 
@@ -98,7 +106,7 @@ export function loadConfig(configPath: string): ConfigFile {
  * Returns the absolute path to the first match found, or undefined if none exists.
  */
 export function findDefaultConfig(startDir: string = process.cwd()): string | undefined {
-  const filenames = ['svn-merge-tool.yaml', 'svn-merge-tool.yml'];
+  const filenames = ['svnmerge.yaml', 'svnmerge.yml'];
   let current = path.resolve(startDir);
 
   while (true) {

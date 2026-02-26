@@ -68,7 +68,7 @@ svn-merge-tool -v -r 1001,1002
 
 ## 配置文件
 
-工具从当前目录开始向上查找 `svn-merge-tool.yaml`（或 `.yml`）。
+工具从当前目录开始向上查找 `svnmerge.yaml`（或 `.yml`）。
 
 ```yaml
 workspace: /path/to/working-copy
@@ -79,12 +79,12 @@ ignoreMerge:
   - assets/auto-generated/catalog.json
 ```
 
-| 字段          | 说明                                                                                     |
-| ------------- | ---------------------------------------------------------------------------------------- |
-| `workspace`   | SVN 工作副本路径                                                                         |
-| `fromUrl`     | 合并来源分支 URL                                                                         |
-| `outputDir`   | 日志和提交信息文件的输出目录。绝对路径或相对于 workspace 的路径，默认为 workspace 目录。 |
-| `ignoreMerge` | 需要始终丢弃的工作副本相对路径（文件或目录）                                             |
+| 字段          | 说明                                                                                       |
+| ------------- | ------------------------------------------------------------------------------------------ |
+| `workspace`   | SVN 工作副本路径                                                                           |
+| `fromUrl`     | 合并来源分支 URL                                                                           |
+| `outputDir`   | 输出文件目录。绝对路径或相对于 workspace 的路径，默认为 workspace 下的 `.svnmerge/` 目录。 |
+| `ignoreMerge` | 需要始终丢弃的工作副本相对路径（文件或目录）                                               |
 
 命令行选项 `-w` 和 `-f` 会覆盖配置文件中的对应值。
 
@@ -121,10 +121,12 @@ Conflict Summary:
 
 ### 输出文件
 
-| 文件                    | 说明                                            |
-| ----------------------- | ----------------------------------------------- |
-| `svn-merge-tool.log`    | 完整合并日志，实时写入 workspace 目录           |
-| `svn-merge-message.txt` | 提交信息，包含压缩修订版本范围 + `svn log` 正文 |
+两个文件均写入 `outputDir`（默认为 workspace 下的 `.svnmerge/` 目录）。
+
+| 文件                         | 说明                                            |
+| ---------------------------- | ----------------------------------------------- |
+| `yyyymmddhhmmss-log.txt`     | 完整合并日志，实时写入                          |
+| `yyyymmddhhmmss-message.txt` | 提交信息，包含压缩修订版本范围 + `svn log` 正文 |
 
 ## 冲突解决规则
 

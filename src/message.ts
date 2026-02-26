@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-import { svnLog } from './svn';
+import { svnLogBatch } from './svn';
 import { MergeSummary } from './types';
 import { branchName, compressRevisions } from './utils';
 
@@ -21,8 +21,9 @@ export function writeMessageFile(
   summary: MergeSummary,
   fromUrl: string,
   outputDir: string,
+  startTs: string,
 ): void {
-  const outPath = path.join(outputDir, 'svn-merge-message.txt');
+  const outPath = path.join(outputDir, `${startTs}-message.txt`);
   const branch = branchName(fromUrl);
 
   // Only include successfully merged revisions
@@ -34,9 +35,12 @@ export function writeMessageFile(
   const header = `Merged revision(s) ${compressRevisions(mergedRevisions)} from ${branch}:`;
   const lines: string[] = [header];
 
+  process.stdout.write('  Fetching revision logs...\r');
+  const logMap = svnLogBatch(mergedRevisions, fromUrl);
+  process.stdout.write(' '.repeat(40) + '\r');
+
   for (const rev of mergedRevisions) {
-    process.stdout.write(`  Fetching log r${rev}...\r`);
-    const body = svnLog(rev, fromUrl);
+    const body = logMap.get(rev) ?? '';
     if (body) {
       lines.push(body);
     } else {
@@ -44,8 +48,6 @@ export function writeMessageFile(
     }
     lines.push(ENTRY_SEP);
   }
-  // Clear the status line
-  process.stdout.write(' '.repeat(40) + '\r');
 
   try {
     fs.writeFileSync(outPath, lines.join('\n') + '\n', 'utf8');
@@ -57,6 +59,6 @@ export function writeMessageFile(
   return;
 }
 
-export function getMessageFilePath(outputDir: string): string {
-  return path.join(outputDir, 'svn-merge-message.txt');
+export function getMessageFilePath(outputDir: string, startTs: string): string {
+  return path.join(outputDir, `${startTs}-message.txt`);
 }
