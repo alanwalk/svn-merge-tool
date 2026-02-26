@@ -35,7 +35,7 @@ const program = new Command();
 program
   .name('svn-merge-tool')
   .description('SVN branch merge tool — merge specific revisions one by one')
-  .version('1.0.3', '-v, --version', 'Output version number')
+  .version('1.0.4', '-v, --version', 'Output version number')
   .option('-c, --config <path>', 'Path to YAML config file')
   .option('-w, --workspace <path>', 'SVN working copy directory')
   .option('-f, --from <url>', 'Source branch URL to merge from')

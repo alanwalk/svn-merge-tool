@@ -136,8 +136,8 @@ Conflict Summary:
 
 The log file is written to the `output` directory (default: `.svnmerge/` under workspace).
 
-| File                        | Description                                                                          |
-| --------------------------- | ------------------------------------------------------------------------------------ |
+| File                          | Description                                                                             |
+| ----------------------------- | --------------------------------------------------------------------------------------- |
 | `svnmerge-yyyymmddhhmmss.log` | Full merge log streamed in real time, with the commit message block appended at the end |
 
 ## Conflict Resolution Rules
@@ -158,26 +158,14 @@ The log file is written to the `output` directory (default: `.svnmerge/` under w
 
 ## Changelog
 
-### 1.0.7
-- Log file renamed from `yyyymmddhhmmss-log.txt` to `svnmerge-yyyymmddhhmmss.log`
-- Commit message is now appended to the log file instead of a separate `message.txt`
-
-### 1.0.6
-- `-f, --from` replaces `-f, --from-url` (shorter long flag)
-- YAML key `fromUrl` renamed to `from`
-- YAML key `outputDir` renamed to `output`
-- YAML key `ignoreMerge` renamed to `ignore`
-
-### 1.0.5
-- `--commit` flag and `commit: true` config key: automatically run `svn commit` after a successful merge, using the generated `message.txt` as the commit log
-- YAML key renamed from `autoCommit` to `commit` to match the CLI flag
-- Commit is skipped if there are any failures or unresolved conflicts
-
 ### 1.0.4
-- `--dry-run` flag: preview eligible revisions and their log messages without making any changes
+- `-d, --dry-run`: preview eligible revisions and their log messages without merging
+- `-i, --ignore <paths>`: comma-separated ignore paths, appended to config `ignore` list
+- `-C, --commit` / `commit: true`: auto `svn commit` after successful merge using generated message
+- `-V, --verbose` (was `-v`), `-v, --version` (was `-V`)
+- `-f, --from` replaces `--from-url`; YAML keys renamed: `fromUrl`→`from`, `outputDir`→`output`, `ignoreMerge`→`ignore`
 - Config file renamed from `svn-merge-tool.yaml` to `svnmerge.yaml`
-- `verbose: true` config key: mirror of the `-v` flag
-- Output filenames now include a timestamp prefix (`yyyymmddhhmmss-log.txt`, `yyyymmddhhmmss-message.txt`)
+- Log file renamed to `svnmerge-yyyymmddhhmmss.log`; commit message appended to log (no separate `message.txt`)
 
 ### 1.0.3
 - YAML config keys renamed to camelCase: `fromUrl`, `outputDir`, `ignoreMerge`

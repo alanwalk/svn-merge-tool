@@ -143,8 +143,8 @@ Conflict Summary:
 
 日志文件写入 `output` 目录（默认为 workspace 下的 `.svnmerge/` 目录）。
 
-| 文件                          | 说明                                                                  |
-| ----------------------------- | ---------------------------------------------------------------------- |
+| 文件                          | 说明                                       |
+| ----------------------------- | ------------------------------------------ |
 | `svnmerge-yyyymmddhhmmss.log` | 完整合并日志实时写入，提交信息块追加在最后 |
 
 ## 冲突解决规则
@@ -165,26 +165,14 @@ Conflict Summary:
 
 ## 更新日志
 
-### 1.0.7
-- 日志文件重命名：`yyyymmddhhmmss-log.txt` 改为 `svnmerge-yyyymmddhhmmss.log`
-- 提交信息内容不再单独生成 `message.txt`，改为追加到日志文件末尾
-
-### 1.0.6
-- `-f, --from` 替代 `-f, --from-url`（长标志更简洁）
-- YAML 配置键 `fromUrl` 重命名为 `from`
-- YAML 配置键 `outputDir` 重命名为 `output`
-- YAML 配置键 `ignoreMerge` 重命名为 `ignore`
-
-### 1.0.5
-- 新增 `--commit` 参数和 `commit: true` 配置项：合并成功后自动执行 `svn commit`，以生成的 `message.txt` 内容作为提交日志
-- YAML 配置键从 `autoCommit` 改为 `commit`，与 CLI 参数保持一致
-- 存在失败或未解决冲突时跳过自动提交
-
 ### 1.0.4
-- 新增 `--dry-run` 参数：预览待合并修订版本及其日志，不执行任何实际修改
+- `-d, --dry-run`：预览待合并修订版本及日志，不执行合并
+- `-i, --ignore <paths>`：命令行传入忽略路径（逗号分隔），追加到配置的 `ignore` 列表
+- `-C, --commit` / `commit: true`：合并成功后自动 `svn commit`，使用生成的提交信息
+- 短标志调整：`-V` 改为 `--verbose`，`-v` 改为 `--version`
+- `-f, --from` 替代 `--from-url`；YAML 键重命名：`fromUrl`→`from`、`outputDir`→`output`、`ignoreMerge`→`ignore`
 - 配置文件名从 `svn-merge-tool.yaml` 改为 `svnmerge.yaml`
-- 新增 `verbose: true` 配置项：等同于 `-v` 参数
-- 输出文件名现在带有时间戳前缀（`yyyymmddhhmmss-log.txt`、`yyyymmddhhmmss-message.txt`）
+- 日志文件改名为 `svnmerge-yyyymmddhhmmss.log`；提交信息追加到日志末尾，不再单独生成 `message.txt`
 
 ### 1.0.3
 - YAML 配置字段重命名为小驼峰格式：`fromUrl`、`outputDir`、`ignoreMerge`
