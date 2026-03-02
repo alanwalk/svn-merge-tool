@@ -115,10 +115,10 @@ Command-line options `-w`, `-f`, `-o`, `-V`, `-C` override the corresponding con
 [2/13] r84598  15%  ✓
 ```
 
-### Conflict Summary (after all revisions)
+### Merge Summary (after all revisions)
 
 ```
-Conflict Summary:
+Merge Summary:
   Tree Conflicts (2 + 7 ignored):
     [F]  src/gameplay/module/FooSystem.lua  (working)
     [F]  src/gameplay/module/BarSystem.lua  (working)
@@ -160,7 +160,7 @@ The log file is written to the `output` directory (default: `.svnmerge/` under w
 
 ### 1.0.5
 - Auto-commit is now blocked if any conflict occurs on a path **not** in the `ignore` list, regardless of how the conflict was resolved
-- In verbose mode (`-V`), Conflict Summary is now always printed even when all conflicts are ignored
+- In verbose mode (`-V`), Merge Summary is now always printed even when all conflicts are ignored
 - `package.json`: added `license`, `repository`, `homepage`, and `bugs` fields
 
 ### 1.0.4
@@ -184,7 +184,7 @@ The log file is written to the `output` directory (default: `.svnmerge/` under w
 ### 1.0.2
 - `-v / --verbose` flag: ignored and reverted file details are now hidden by default; pass `-v` to show them in the console
 - Tree conflicts now display in **red**; text/property conflicts in yellow
-- Conflict Summary is written to `svn-merge-tool.log` at the end of each run
+- Merge Summary is written to `svn-merge-tool.log` at the end of each run
 - `svn-merge-tool.log` and `svn-merge-message.txt` are now generated inside the workspace directory (not cwd)
 
 ### 1.0.1

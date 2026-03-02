@@ -1,5 +1,6 @@
 #!/usr/bin/env ts-node
 
+import { spawnSync } from 'child_process';
 import { Command } from 'commander';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -19,6 +20,26 @@ import { compressRevisions, groupSummaryByType, relPath } from './utils';
 const RED = (s: string) => `\x1b[31m${s}\x1b[0m`;
 const YELLOW = (s: string) => `\x1b[33m${s}\x1b[0m`;
 const CYAN = (s: string) => `\x1b[36m${s}\x1b[0m`;
+
+/** Copy text to system clipboard (best-effort, silently ignores errors). */
+function copyToClipboard(text: string): void {
+  try {
+    if (process.platform === 'win32') {
+      spawnSync(
+        'powershell',
+        ['-noprofile', '-sta', '-command',
+          '[Console]::InputEncoding=[Text.Encoding]::UTF8;Set-Clipboard([Console]::In.ReadToEnd())'],
+        { input: text, encoding: 'utf8', timeout: 5000 }
+      );
+    } else if (process.platform === 'darwin') {
+      spawnSync('pbcopy', [], { input: text, encoding: 'utf8', timeout: 5000 });
+    } else {
+      spawnSync('xclip', ['-selection', 'clipboard'], { input: text, encoding: 'utf8', timeout: 5000 });
+    }
+  } catch {
+    // silently ignore clipboard errors
+  }
+}
 
 /** Timestamp string yyyymmddhhmmss for output filenames */
 function makeStartTs(): string {
@@ -358,9 +379,9 @@ const hasActiveConflicts = summary.results.some((r) => r.conflicts.some((c) => !
 const hasIgnoredConflicts = summary.results.some((r) => r.conflicts.some((c) => c.ignored));
 if (hasActiveConflicts || summary.failed > 0 || (verbose && (uniqueReverted.length > 0 || summary.withConflicts > 0 || hasIgnoredConflicts))) {
   console.log();
-  console.log('\x1b[1mConflict Summary:\x1b[0m');
+  console.log('\x1b[1mMerge Summary:\x1b[0m');
   logger.log('');
-  logger.log('Conflict Summary:');
+  logger.log('Merge Summary:');
 
   for (const result of summary.results) {
     if (!result.success) {
@@ -426,6 +447,10 @@ const mergeMessage = buildMessage(summary, rawFromUrl);
 logger.appendRaw('\n' + '='.repeat(72) + '\n');
 logger.appendRaw(mergeMessage);
 logger.appendRaw('='.repeat(72) + '\n');
+
+// ─── Copy merge message to clipboard ─────────────────────────────────────────
+copyToClipboard(mergeMessage);
+console.log(CYAN('Merge message copied to clipboard.'));
 
 // ─── Console: done line ───────────────────────────────────────────────────────
 

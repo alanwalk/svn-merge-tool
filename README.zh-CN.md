@@ -128,10 +128,10 @@ ignore:
   [NONE    ][F]  src/thirdparty/generated/hero/skill.xlsx  (reverted)
 ```
 
-### 冲突汇总（所有修订完成后）
+### 合并摘要（所有修订完成后）
 
 ```
-Conflict Summary:
+Merge Summary:
   Tree Conflicts (2):
     [F]  src/gameplay/module/FooSystem.lua  (working)
     [F]  src/gameplay/module/BarSystem.lua  (working)
@@ -167,7 +167,7 @@ Conflict Summary:
 
 ### 1.0.5
 - 自动提交逻辑调整：若有冲突路径**不在** `ignore` 列表中，无论冲突以何种方式处理，均阻止自动 commit
-- Verbose 模式（`-V`）下，即使所有冲突均为 ignored，也会打印 Conflict Summary
+- Verbose 模式（`-V`）下，即使所有冲突均为 ignored，也会打印 Merge Summary
 - `package.json` 补充 `license`、`repository`、`homepage`、`bugs` 字段
 
 ### 1.0.4
