@@ -165,6 +165,13 @@ Merge Summary:
 
 ## 更新日志
 
+### 1.0.6
+- 不管是否传 `-r` 参数，合并前均显示日志预览并弹出 `[y/N]` 确认提示
+- 控制台及日志文件中的 "Conflict Summary" 统一改名为 "Merge Summary"
+- 合并完成后自动将 Merge Message 复制到系统剪贴板（Windows/macOS/Linux）
+- `~/.svnmergerc` 新增 `copyToClipboard` 配置项（默认 `true`），设为 `false` 可关闭
+- 复制剪贴板操作同步写入日志文件
+
 ### 1.0.5
 - 自动提交逻辑调整：若有冲突路径**不在** `ignore` 列表中，无论冲突以何种方式处理，均阻止自动 commit
 - Verbose 模式（`-V`）下，即使所有冲突均为 ignored，也会打印 Merge Summary

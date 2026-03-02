@@ -158,6 +158,13 @@ The log file is written to the `output` directory (default: `.svnmerge/` under w
 
 ## Changelog
 
+### 1.0.6
+- Log preview and `[y/N]` confirm prompt are now shown before merge regardless of whether `-r` is explicitly provided
+- "Conflict Summary" renamed to "Merge Summary" in console output and log file
+- Merge message is automatically copied to system clipboard after each run
+- `copyToClipboard` option in `~/.svnmergerc` (default: `true`) to disable clipboard copy
+- `~/.svnmergerc`: new `copyToClipboard` field; auto-created file now includes this option
+
 ### 1.0.5
 - Auto-commit is now blocked if any conflict occurs on a path **not** in the `ignore` list, regardless of how the conflict was resolved
 - In verbose mode (`-V`), Merge Summary is now always printed even when all conflicts are ignored
