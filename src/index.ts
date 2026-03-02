@@ -8,6 +8,7 @@ import { findDefaultConfig, loadConfig } from './config';
 import { Logger } from './logger';
 import { run } from './merger';
 import { buildMessage } from './message';
+import { checkForUpdate } from './updater';
 import {
     svnCommit, svnEligibleRevisions, svnInfo, svnLogBatch, svnStatusDirty, svnUpdate
 } from './svn';
@@ -78,6 +79,7 @@ Examples:
   );
 
 program.parse(process.argv);
+checkForUpdate('1.0.5');
 
 const opts = program.opts<{ config?: string; workspace?: string; from?: string; revisions?: string; verbose?: boolean; dryRun?: boolean; output?: string; ignore?: string; commit?: boolean }>();
 
