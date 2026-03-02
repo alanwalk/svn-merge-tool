@@ -449,8 +449,12 @@ logger.appendRaw(mergeMessage);
 logger.appendRaw('='.repeat(72) + '\n');
 
 // ─── Copy merge message to clipboard ─────────────────────────────────────────
-copyToClipboard(mergeMessage);
-console.log(CYAN('Merge message copied to clipboard.'));
+if (rcConfig.copyToClipboard) {
+  copyToClipboard(mergeMessage);
+  const clipMsg = 'Merge message copied to clipboard.';
+  console.log(CYAN(clipMsg));
+  logger.log(clipMsg);
+}
 
 // ─── Console: done line ───────────────────────────────────────────────────────
 

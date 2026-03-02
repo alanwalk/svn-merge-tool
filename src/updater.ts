@@ -36,6 +36,10 @@ checkInterval: 86400
 # global-ignore:
 #   - ResProject/ExternalConfig
 #   - path/to/generated
+
+# Copy merge message to clipboard after each run
+# Set to false to disable
+copyToClipboard: true
 `;
 
 // ─── RC Config ────────────────────────────────────────────────────────────────
@@ -44,6 +48,7 @@ export interface RcConfig {
   checkUpdate: boolean;
   checkInterval: number;
   globalIgnore: string[];
+  copyToClipboard: boolean;
 }
 
 function loadOrCreateRc(): RcConfig {
@@ -67,9 +72,10 @@ function loadOrCreateRc(): RcConfig {
       checkInterval:
         typeof parsed['checkInterval'] === 'number' ? parsed['checkInterval'] : 86400,
       globalIgnore,
+      copyToClipboard: parsed['copyToClipboard'] !== false,
     };
   } catch {
-    return { checkUpdate: true, checkInterval: 86400, globalIgnore: [] };
+    return { checkUpdate: true, checkInterval: 86400, globalIgnore: [], copyToClipboard: true };
   }
 }
 
