@@ -12,7 +12,7 @@ import {
     svnCommit, svnEligibleRevisions, svnInfo, svnLogBatch, svnStatusDirty, svnUpdate
 } from './svn';
 import { MergeOptions } from './types';
-import { checkForUpdate } from './updater';
+import { checkForUpdate, loadOrCreateRc } from './updater';
 import { compressRevisions, groupSummaryByType, relPath } from './utils';
 
 /** ANSI color helpers */
@@ -79,7 +79,8 @@ Examples:
   );
 
 program.parse(process.argv);
-checkForUpdate('1.0.5');
+const rcConfig = loadOrCreateRc();
+checkForUpdate('1.0.5', rcConfig);
 
 const opts = program.opts<{ config?: string; workspace?: string; from?: string; revisions?: string; verbose?: boolean; dryRun?: boolean; output?: string; ignore?: string; commit?: boolean }>();
 
@@ -202,12 +203,19 @@ if (opts.revisions) {
 // ─── Print resolved parameters ───────────────────────────────────────────────
 {
   const cliIgnorePaths = opts.ignore ? opts.ignore.split(',').map((s) => s.trim()).filter(Boolean) : [];
-  const allIgnore = [...configIgnoreMerge, ...cliIgnorePaths];
+  const allIgnore = [...rcConfig.globalIgnore, ...configIgnoreMerge, ...cliIgnorePaths];
   console.log(CYAN('─── Parameters ───────────────────────────────────────'));
   console.log(CYAN(`  workspace : ${workspace}`));
   console.log(CYAN(`  from      : ${rawFromUrl}`));
   console.log(CYAN(`  output    : ${outputDir}`));
-  console.log(CYAN(`  ignore    : ${allIgnore.length ? allIgnore.join(', ') : '(none)'}`));
+  if (allIgnore.length === 0) {
+    console.log(CYAN('  ignore    : (none)'));
+  } else {
+    console.log(CYAN(`  ignore    : ${allIgnore[0]}`));
+    for (let i = 1; i < allIgnore.length; i++) {
+      console.log(CYAN(`              ${allIgnore[i]}`));
+    }
+  };
   console.log(CYAN(`  verbose   : ${!!(opts.verbose || configVerbose)}`));
   console.log(CYAN(`  dry-run   : ${!!opts.dryRun}`));
   console.log(CYAN(`  commit    : ${!!(opts.commit || configCommit)}`));
@@ -299,7 +307,7 @@ if (opts.dryRun && revisions.length > 0) {
 const cliIgnorePaths = opts.ignore
   ? opts.ignore.split(',').map((s) => s.trim()).filter(Boolean)
   : [];
-const ignorePaths = [...configIgnoreMerge, ...cliIgnorePaths];
+const ignorePaths = [...rcConfig.globalIgnore, ...configIgnoreMerge, ...cliIgnorePaths];
 
 // ─── Run merge ───────────────────────────────────────────────────────────────
 const options: MergeOptions = {

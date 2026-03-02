@@ -30,13 +30,20 @@ checkUpdate: true
 # Update check interval in seconds
 # 86400 = 24 hours (default), 3600 = 1 hour, 0 = check every startup
 checkInterval: 86400
+
+# Global ignore paths applied to every project (workspace-relative or absolute)
+# These are merged with per-project ignore paths in svnmerge.yaml
+# global-ignore:
+#   - ResProject/ExternalConfig
+#   - path/to/generated
 `;
 
 // ─── RC Config ────────────────────────────────────────────────────────────────
 
-interface RcConfig {
+export interface RcConfig {
   checkUpdate: boolean;
   checkInterval: number;
+  globalIgnore: string[];
 }
 
 function loadOrCreateRc(): RcConfig {
@@ -51,15 +58,22 @@ function loadOrCreateRc(): RcConfig {
   try {
     const raw = fs.readFileSync(RC_PATH, 'utf8');
     const parsed = (yamlLoad(raw) ?? {}) as Record<string, unknown>;
+    const gi = parsed['global-ignore'];
+    const globalIgnore: string[] = Array.isArray(gi)
+      ? gi.filter((x) => typeof x === 'string' && x.trim()).map((x) => (x as string).trim())
+      : [];
     return {
       checkUpdate: parsed['checkUpdate'] !== false,
       checkInterval:
         typeof parsed['checkInterval'] === 'number' ? parsed['checkInterval'] : 86400,
+      globalIgnore,
     };
   } catch {
-    return { checkUpdate: true, checkInterval: 86400 };
+    return { checkUpdate: true, checkInterval: 86400, globalIgnore: [] };
   }
 }
+
+export { loadOrCreateRc };
 
 // ─── State (last check timestamp) ────────────────────────────────────────────
 
@@ -146,13 +160,14 @@ function promptYN(question: string): boolean {
  * - Skips check if checkUpdate is false or interval has not elapsed.
  * - If a newer version is found, prints the npmjs URL and prompts to update.
  */
-export function checkForUpdate(currentVersion: string): void {
-  const rc = loadOrCreateRc();
-  if (!rc.checkUpdate) return;
+export function checkForUpdate(currentVersion: string, rc?: RcConfig): void {
+  const resolvedRc = rc ?? loadOrCreateRc();
+  if (!resolvedRc.checkUpdate) return;
+  const effectiveRc = resolvedRc;
 
   const state = loadState();
   const now = Date.now();
-  const intervalMs = rc.checkInterval * 1000;
+  const intervalMs = effectiveRc.checkInterval * 1000;
 
   if (intervalMs > 0 && now - state.lastCheckTime < intervalMs) return;
 
