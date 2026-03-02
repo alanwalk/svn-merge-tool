@@ -303,6 +303,23 @@ if (opts.dryRun && revisions.length > 0) {
   process.exit(0);
 }
 
+// ─── Preview + confirm for explicit -r (non dry-run) ─────────────────────────
+if (revisions.length > 0) {
+  console.log(CYAN(`Revisions to merge (${revisions.length}): ${compressRevisions(revisions)}`));
+  process.stdout.write(CYAN('Fetching revision logs...\r'));
+  const logMap = svnLogBatch(revisions, rawFromUrl);
+  process.stdout.write(' '.repeat(40) + '\r');
+  for (const rev of revisions) {
+    const body = logMap.get(rev) ?? '';
+    const firstLine = body.split('\n')[0].trim();
+    console.log(CYAN(`  r${rev}  ${firstLine || '(no message)'}`));
+  }
+  if (!promptYN(YELLOW(`\nMerge ${revisions.length} revision(s)? [y/N] `))) {
+    console.log(RED('Aborted.'));
+    process.exit(0);
+  }
+}
+
 // ─── Merge ignore paths: CLI -i appends to config ignore list ───────────────
 const cliIgnorePaths = opts.ignore
   ? opts.ignore.split(',').map((s) => s.trim()).filter(Boolean)
