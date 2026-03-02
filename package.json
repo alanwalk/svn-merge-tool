@@ -2,6 +2,15 @@
     "name": "svn-merge-tool",
     "version": "1.0.4",
     "description": "SVN branch merge CLI tool - merge specific revisions one by one",
+    "license": "MIT",
+    "homepage": "https://github.com/alanwalk/svn-merge-tool#readme",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/alanwalk/svn-merge-tool.git"
+    },
+    "bugs": {
+        "url": "https://github.com/alanwalk/svn-merge-tool/issues"
+    },
     "bin": {
         "svn-merge-tool": "bin/svn-merge-tool.js"
     },
