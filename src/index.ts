@@ -425,7 +425,7 @@ if (shouldCommit) {
     }
     if (hasActiveConflicts) {
       const conflictRevs = summary.results
-        .filter((r) => r.conflicts.some((c) => !c.resolved))
+        .filter((r) => r.conflicts.some((c) => !c.ignored))
         .map((r) => `r${r.revision}`)
         .join(', ');
       reasons.push(`unresolved conflicts (${conflictRevs})`);
