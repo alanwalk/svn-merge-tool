@@ -165,6 +165,11 @@ Conflict Summary:
 
 ## 更新日志
 
+### 1.0.5
+- 自动提交逻辑调整：若有冲突路径**不在** `ignore` 列表中，无论冲突以何种方式处理，均阻止自动 commit
+- Verbose 模式（`-V`）下，即使所有冲突均为 ignored，也会打印 Conflict Summary
+- `package.json` 补充 `license`、`repository`、`homepage`、`bugs` 字段
+
 ### 1.0.4
 - `-d, --dry-run`：预览待合并修订版本及日志，不执行合并
 - `-i, --ignore <paths>`：命令行传入忽略路径（逗号分隔），追加到配置的 `ignore` 列表

@@ -158,6 +158,11 @@ The log file is written to the `output` directory (default: `.svnmerge/` under w
 
 ## Changelog
 
+### 1.0.5
+- Auto-commit is now blocked if any conflict occurs on a path **not** in the `ignore` list, regardless of how the conflict was resolved
+- In verbose mode (`-V`), Conflict Summary is now always printed even when all conflicts are ignored
+- `package.json`: added `license`, `repository`, `homepage`, and `bugs` fields
+
 ### 1.0.4
 - `-d, --dry-run`: preview eligible revisions and their log messages without merging
 - `-i, --ignore <paths>`: comma-separated ignore paths, appended to config `ignore` list
