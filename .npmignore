@@ -1,7 +1,7 @@
 src/
 .vscode/
+.agent/
 *.log
 .svnmerge/
 .gitignore
 tsconfig.json
-CLAUDE.md

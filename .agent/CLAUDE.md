@@ -159,8 +159,7 @@ interface MergeSummary {
 4. `git add -A && git commit -m "bump version to X.Y.Z, update README changelog"`
 5. `git push origin main`
 6. `git tag vX.Y.Z && git push origin vX.Y.Z`
-7. Create GitHub Release manually at https://github.com/alanwalk/svn-merge-tool/releases/new  
-   (or via `gh release create vX.Y.Z --title "vX.Y.Z" --notes "..."` once `gh` is configured)
+7. `gh release create vX.Y.Z --title "vX.Y.Z" --notes "..."` (需先 `gh auth login`)
 8. `npm config set registry https://registry.npmjs.org/`
 9. `npm publish`
 10. `npm config set registry https://registry.npmmirror.com/`
