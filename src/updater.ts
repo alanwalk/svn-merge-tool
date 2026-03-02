@@ -5,7 +5,14 @@ import * as os from 'os';
 import * as path from 'path';
 
 const RC_PATH = path.join(os.homedir(), '.svnmergerc');
-const STATE_PATH = path.join(os.homedir(), '.svnmergerc.state.json');
+
+function getStateDir(): string {
+  if (process.platform === 'win32') {
+    return path.join(process.env['APPDATA'] ?? os.homedir(), 'svnmerge');
+  }
+  return path.join(os.homedir(), '.local', 'share', 'svnmerge');
+}
+const STATE_PATH = path.join(getStateDir(), 'state.json');
 const PACKAGE_NAME = 'svn-merge-tool';
 const NPM_URL = `https://www.npmjs.com/package/${PACKAGE_NAME}`;
 
@@ -71,6 +78,7 @@ function loadState(): StateData {
 
 function saveState(state: StateData): void {
   try {
+    fs.mkdirSync(getStateDir(), { recursive: true });
     fs.writeFileSync(STATE_PATH, JSON.stringify(state), 'utf8');
   } catch { /* ignore */ }
 }

@@ -8,11 +8,11 @@ import { findDefaultConfig, loadConfig } from './config';
 import { Logger } from './logger';
 import { run } from './merger';
 import { buildMessage } from './message';
-import { checkForUpdate } from './updater';
 import {
     svnCommit, svnEligibleRevisions, svnInfo, svnLogBatch, svnStatusDirty, svnUpdate
 } from './svn';
 import { MergeOptions } from './types';
+import { checkForUpdate } from './updater';
 import { compressRevisions, groupSummaryByType, relPath } from './utils';
 
 /** ANSI color helpers */
