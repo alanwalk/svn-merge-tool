@@ -328,7 +328,8 @@ const uniqueRevertedRel = uniqueReverted.map((r) => ({
 uniqueRevertedRel.sort((a, b) => a.relPath.localeCompare(b.relPath));
 
 const hasActiveConflicts = summary.results.some((r) => r.conflicts.some((c) => !c.ignored));
-if (hasActiveConflicts || summary.failed > 0 || (verbose && (uniqueReverted.length > 0 || summary.withConflicts > 0))) {
+const hasIgnoredConflicts = summary.results.some((r) => r.conflicts.some((c) => c.ignored));
+if (hasActiveConflicts || summary.failed > 0 || (verbose && (uniqueReverted.length > 0 || summary.withConflicts > 0 || hasIgnoredConflicts))) {
   console.log();
   console.log('\x1b[1mConflict Summary:\x1b[0m');
   logger.log('');
