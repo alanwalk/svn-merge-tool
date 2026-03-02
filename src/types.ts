@@ -26,8 +26,6 @@ export interface ConflictInfo {
   isDirectory: boolean;
   /** True when this conflict was silently discarded due to ignore-merge config */
   ignored: boolean;
-  /** True when svnResolve succeeded (or was ignored); false when resolve call failed */
-  resolved: boolean;
 }
 
 /**

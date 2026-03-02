@@ -51,14 +51,12 @@ function mergeRevision(
       ? 'working'
       : c.resolution,
     ignored: isIgnored(c.path, workspace, ignorePaths),
-    resolved: false, // will be updated after svnResolve
   }));
 
   if (conflicts.length > 0) {
     logger.log(`[r${revision}] ${conflicts.length} conflict(s) detected, auto-resolving:`);
     for (const conflict of conflicts) {
       const { success, message } = svnResolve(conflict.path, conflict.resolution, workspace);
-      conflict.resolved = success;
       const rel = relPath(conflict.path, workspace);
       if (success) {
         const logLine = formatConflictLine(conflict.type, conflict.isDirectory, rel, conflict.ignored ? 'ignored' : conflict.resolution);
@@ -158,7 +156,7 @@ export function run(options: MergeOptions, logger: Logger): MergeSummary {
   let failed = 0;
   for (const r of results) {
     if (!r.success) failed++;
-    else if (r.conflicts.some((c) => !c.resolved)) withConflicts++;
+    else if (r.conflicts.some((c) => !c.ignored)) withConflicts++;
     else succeeded++;
   }
 
