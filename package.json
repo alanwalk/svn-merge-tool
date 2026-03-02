@@ -12,7 +12,8 @@
         "url": "https://github.com/alanwalk/svn-merge-tool/issues"
     },
     "bin": {
-        "svn-merge-tool": "bin/svn-merge-tool.js"
+        "svn-merge-tool": "bin/svn-merge-tool.js",
+        "svnmerge": "bin/svn-merge-tool.js"
     },
     "files": [
         "bin/",
