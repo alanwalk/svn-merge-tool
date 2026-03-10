@@ -35,7 +35,7 @@ function mergeRevision(
 
   if (isFatalError) {
     logger.log(`[r${revision}] FAILED: ${stderr.trim()}`);
-    return { revision, success: false, conflicts: [], reverted: [], errorMessage: stderr.trim() };
+    return { revision, success: false, conflicts: [], reverted: [], modified: [], errorMessage: stderr.trim() };
   }
 
   if (stderr.trim()) {
@@ -87,7 +87,13 @@ function mergeRevision(
     }
   }
 
-  return { revision, success: true, conflicts, reverted };
+  const revertedPaths = new Set(reverted.map((r) => r.path));
+  const modified: { path: string; isDirectory: boolean }[] = [
+    ...conflicts.map((c) => ({ path: c.path, isDirectory: c.isDirectory })),
+    ...modifications.filter((m) => !revertedPaths.has(m.path)),
+  ];
+
+  return { revision, success: true, conflicts, reverted, modified };
 }
 
 /**
@@ -121,10 +127,10 @@ export function run(options: MergeOptions, logger: Logger): MergeSummary {
     } else if (result.conflicts.length > 0 || result.reverted.length > 0) {
       const activeConflicts = result.conflicts.filter((c) => !c.ignored);
       const ignoredConflicts = result.conflicts.filter((c) => c.ignored);
+      const ignoredCount = ignoredConflicts.length + result.reverted.length;
       const parts: string[] = [];
       if (activeConflicts.length > 0) parts.push(`${activeConflicts.length} conflict(s)`);
-      if (ignoredConflicts.length > 0) parts.push(`${ignoredConflicts.length} ignored`);
-      if (result.reverted.length > 0) parts.push(`${result.reverted.length} reverted`);
+      if (ignoredCount > 0) parts.push(`${ignoredCount} ignored`);
       const hasTreeConflict = activeConflicts.some((c) => c.type === 'tree');
       const labelColor = hasTreeConflict ? RED : YELLOW;
       process.stdout.write(`\x1b[1A\x1b[2K${labelColor(label + `  (${parts.join(', ')})`)}\n`);
@@ -141,7 +147,7 @@ export function run(options: MergeOptions, logger: Logger): MergeSummary {
       for (const r of result.reverted) {
         const rel = relPath(r.path, workspace);
         const kindTag = r.isDirectory ? '[D]' : '[F]';
-        if (verbose) process.stdout.write(GRAY(`  [NONE    ]${kindTag}  ${rel}  (reverted)\n`));
+        if (verbose) process.stdout.write(GRAY(`  [NONE    ]${kindTag}  ${rel}  (ignored)\n`));
       }
     } else {
       process.stdout.write(`\x1b[1A\x1b[2K${GREEN(label + '  ✓')}\n`);

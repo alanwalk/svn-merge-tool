@@ -125,7 +125,7 @@ ignore:
 [1/13] r84597  8%  (2 conflict(s), 2 ignored)
   [TREE    ][F]  src/gameplay/module/FooSystem.lua  (working)
   [TEXT    ][F]  src/thirdparty/generated/hero/buff.xlsx  (ignored)
-  [NONE    ][F]  src/thirdparty/generated/hero/skill.xlsx  (reverted)
+  [NONE    ][F]  src/thirdparty/generated/hero/skill.xlsx  (ignored)
 ```
 
 ### 合并摘要（所有修订完成后）
@@ -137,7 +137,7 @@ Merge Summary:
     [F]  src/gameplay/module/BarSystem.lua  (working)
 ```
 
-加上 `-v` 后还会显示 ignored / Reverted 分组。
+加上 `-v` 后还会显示 ignored / Ignored 分组。
 
 ### 输出文件
 
@@ -155,7 +155,7 @@ Merge Summary:
 | 文本冲突                   | `svn resolve --accept theirs-full`（接受对方） |
 | 属性冲突                   | `svn resolve --accept theirs-full`（接受对方） |
 | 忽略路径（有冲突）         | 强制改为 `working`，灰色显示                   |
-| 忽略路径（无冲突但有修改） | `svn revert`，灰色显示为 `(reverted)`          |
+| 忽略路径（无冲突但有修改） | `svn revert`，灰色显示为 `(ignored)`           |
 
 ## 技术栈
 
@@ -164,6 +164,13 @@ Merge Summary:
 - [js-yaml](https://github.com/nodeca/js-yaml) — YAML 配置解析
 
 ## 更新日志
+
+### 1.0.7
+- 修复：不带 `-r` 自动发现 eligible 修订版本时，不再弹出第二次合并确认
+- 修复：`Tree Conflicts (N + M ignored)` 标题行在所有条目均为 ignored 时改为灰色显示
+- 修复：所有忽略路径（无论是冲突 ignored 还是 revert 的）统一显示为 `(ignored)`，不再混用 `(reverted)`
+- 修复：Merge Summary 中的 `Reverted (N Ignored):` 分组改名为 `Ignored (N):`
+- 修复：自动提交（`-C`）现在只提交合并过程中实际有变更的文件，排除被 revert 的忽略路径
 
 ### 1.0.6
 - 不管是否传 `-r` 参数，合并前均显示日志预览并弹出 `[y/N]` 确认提示

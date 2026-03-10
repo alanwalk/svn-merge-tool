@@ -57,7 +57,7 @@ const program = new Command();
 program
   .name('svn-merge-tool')
   .description('SVN branch merge tool — merge specific revisions one by one')
-  .version('1.0.6', '-v, --version', 'Output version number')
+  .version('1.0.7', '-v, --version', 'Output version number')
   .option('-c, --config <path>', 'Path to YAML config file')
   .option('-w, --workspace <path>', 'SVN working copy directory')
   .option('-f, --from <url>', 'Source branch URL to merge from')
@@ -101,7 +101,7 @@ Examples:
 
 program.parse(process.argv);
 const rcConfig = loadOrCreateRc();
-checkForUpdate('1.0.6', rcConfig);
+checkForUpdate('1.0.7', rcConfig);
 
 const opts = program.opts<{ config?: string; workspace?: string; from?: string; revisions?: string; verbose?: boolean; dryRun?: boolean; output?: string; ignore?: string; commit?: boolean }>();
 
@@ -267,6 +267,7 @@ try {
 }
 
 // ─── If no -r provided, discover eligible revisions ──────────────────────────
+let autoDiscovered = false;
 if (revisions.length === 0) {
   let eligible: number[];
   try {
@@ -306,6 +307,7 @@ if (revisions.length === 0) {
     process.exit(0);
   }
   revisions.push(...eligible);
+  autoDiscovered = true;
 }
 
 
@@ -325,7 +327,7 @@ if (opts.dryRun && revisions.length > 0) {
 }
 
 // ─── Preview + confirm for explicit -r (non dry-run) ─────────────────────────
-if (revisions.length > 0) {
+if (!autoDiscovered && revisions.length > 0) {
   console.log(CYAN(`Revisions to merge (${revisions.length}): ${compressRevisions(revisions)}`));
   process.stdout.write(CYAN('Fetching revision logs...\r'));
   const logMap = svnLogBatch(revisions, rawFromUrl);
@@ -408,7 +410,7 @@ if (hasActiveConflicts || summary.failed > 0 || (verbose && (uniqueReverted.leng
     const countLabel = verbose && ignoredEntries.length > 0
       ? `${activeEntries.length} + ${ignoredEntries.length} ignored`
       : `${activeEntries.length}`;
-    const titleColor = type === 'tree' ? DONE_RED_SUMMARY : DONE_YELLOW;
+    const titleColor = activeEntries.length === 0 ? GRAY : (type === 'tree' ? DONE_RED_SUMMARY : DONE_YELLOW);
     const titleLine = `  ${typeLabels[type]} (${countLabel}):`;
     console.log(titleColor(titleLine));
     logger.log(titleLine);
@@ -429,12 +431,12 @@ if (hasActiveConflicts || summary.failed > 0 || (verbose && (uniqueReverted.leng
   }
 
   if (verbose && uniqueRevertedRel.length > 0) {
-    const revertTitle = `  Reverted (${uniqueRevertedRel.length} Ignored):`;
+    const revertTitle = `  Ignored (${uniqueRevertedRel.length}):`;
     console.log(GRAY(revertTitle));
     logger.log(revertTitle);
     for (const r of uniqueRevertedRel) {
       const kindTag = r.isDirectory ? '[D]' : '[F]';
-      const line = `    ${kindTag}  ${r.relPath}  (reverted)`;
+      const line = `    ${kindTag}  ${r.relPath}  (ignored)`;
       console.log(GRAY(line));
       logger.log(line);
     }
@@ -497,7 +499,14 @@ if (shouldCommit) {
     console.log(DONE_GREEN('\nRunning svn commit...'));
     logger.log('Running svn commit...');
     try {
-      const commitOut = svnCommit(workspace, mergeMessage);
+      const allModifiedPaths = [
+        ...new Map(
+          summary.results
+            .filter((r) => r.success)
+            .flatMap((r) => r.modified.map((m) => [m.path, m]))
+        ).values(),
+      ].map((m) => m.path);
+      const commitOut = svnCommit(workspace, mergeMessage, allModifiedPaths.length > 0 ? allModifiedPaths : undefined);
       console.log(DONE_GREEN('Commit successful.'));
       if (commitOut) {
         console.log(commitOut);

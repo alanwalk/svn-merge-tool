@@ -46,6 +46,8 @@ export interface RevisionMergeResult {
   conflicts: ConflictInfo[];
   /** Paths silently reverted because they matched ignore-merge but had no conflict */
   reverted: RevertedInfo[];
+  /** All non-reverted paths that were modified by this revision (for selective commit) */
+  modified: { path: string; isDirectory: boolean }[];
   errorMessage?: string;
 }
 

@@ -111,7 +111,7 @@ Command-line options `-w`, `-f`, `-o`, `-V`, `-C` override the corresponding con
   [TREE    ][F]  src/gameplay/module/FooSystem.lua  (working)
   [TREE    ][F]  src/gameplay/module/BarSystem.lua  (working)
   [TEXT    ][F]  src/thirdparty/generated/hero/buff.xlsx  (ignored)
-  [NONE    ][F]  src/thirdparty/generated/hero/skill.xlsx  (reverted)
+  [NONE    ][F]  src/thirdparty/generated/hero/skill.xlsx  (ignored)
 [2/13] r84598  15%  ✓
 ```
 
@@ -127,8 +127,8 @@ Merge Summary:
   Text Conflicts (0 + 2 ignored):
     [F]  src/thirdparty/generated/hero/buff.xlsx  (ignored)
     [F]  src/thirdparty/generated/hero/skill.xlsx  (ignored)
-  Reverted (3 Ignored):
-    [F]  src/thirdparty/generated/hero/illustration.xlsx  (reverted)
+  Ignored (3):
+    [F]  src/thirdparty/generated/hero/illustration.xlsx  (ignored)
     ...
 ```
 
@@ -148,7 +148,7 @@ The log file is written to the `output` directory (default: `.svnmerge/` under w
 | Text conflict                            | `svn resolve --accept theirs-full`              |
 | Property conflict                        | `svn resolve --accept theirs-full`              |
 | Ignored path (any conflict)              | Override → `working`, displayed in gray         |
-| Ignored path (no conflict, but modified) | `svn revert`, displayed in gray as `(reverted)` |
+| Ignored path (no conflict, but modified) | `svn revert`, displayed in gray as `(ignored)`  |
 
 ## Tech Stack
 
@@ -157,6 +157,13 @@ The log file is written to the `output` directory (default: `.svnmerge/` under w
 - [js-yaml](https://github.com/nodeca/js-yaml) — YAML config parsing
 
 ## Changelog
+
+### 1.0.7
+- Fix: no-`-r` auto-discovered revisions no longer trigger a second confirmation prompt
+- Fix: `Tree Conflicts (N + M ignored)` title is now shown in gray when all entries are ignored
+- Fix: all ignored paths (both conflicted and reverted) are now consistently displayed as `(ignored)` — not `(reverted)`
+- Fix: `Reverted (N Ignored):` section renamed to `Ignored (N):` with `(ignored)` labels
+- Fix: auto-commit (`-C`) now only commits files that were actually changed during the merge, excluding ignored/reverted paths
 
 ### 1.0.6
 - Log preview and `[y/N]` confirm prompt are now shown before merge regardless of whether `-r` is explicitly provided

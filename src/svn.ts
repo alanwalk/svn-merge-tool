@@ -249,10 +249,12 @@ function parseSvnLogOutput(stdout: string, resultMap: Map<number, string>): void
 
 /**
  * Run `svn commit` on the workspace with the given message.
+ * If targets are provided, only those paths are committed; otherwise the whole workspace.
  * Throws on non-zero exit code.
  */
-export function svnCommit(workspace: string, message: string): string {
-  const { stdout, stderr, exitCode } = runSvn(['commit', '-m', message, workspace]);
+export function svnCommit(workspace: string, message: string, targets?: string[]): string {
+  const paths = targets && targets.length > 0 ? targets : [workspace];
+  const { stdout, stderr, exitCode } = runSvn(['commit', '-m', message, ...paths]);
   if (exitCode !== 0) {
     throw new Error(`svn commit failed (exit ${exitCode}):\n${stderr || stdout}`);
   }
