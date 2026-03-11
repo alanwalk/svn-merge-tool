@@ -142,13 +142,13 @@ The log file is written to the `output` directory (default: `.svnmerge/` under w
 
 ## Conflict Resolution Rules
 
-| Conflict Type                            | Behavior                                        |
-| ---------------------------------------- | ----------------------------------------------- |
-| Tree conflict                            | `svn resolve --accept working`                  |
-| Text conflict                            | `svn resolve --accept theirs-full`              |
-| Property conflict                        | `svn resolve --accept theirs-full`              |
-| Ignored path (any conflict)              | Override → `working`, displayed in gray         |
-| Ignored path (no conflict, but modified) | `svn revert`, displayed in gray as `(ignored)`  |
+| Conflict Type                            | Behavior                                       |
+| ---------------------------------------- | ---------------------------------------------- |
+| Tree conflict                            | `svn resolve --accept working`                 |
+| Text conflict                            | `svn resolve --accept theirs-full`             |
+| Property conflict                        | `svn resolve --accept theirs-full`             |
+| Ignored path (any conflict)              | Override → `working`, displayed in gray        |
+| Ignored path (no conflict, but modified) | `svn revert`, displayed in gray as `(ignored)` |
 
 ## Tech Stack
 
@@ -157,6 +157,9 @@ The log file is written to the `output` directory (default: `.svnmerge/` under w
 - [js-yaml](https://github.com/nodeca/js-yaml) — YAML config parsing
 
 ## Changelog
+
+### 1.0.8
+- Fix: property-only modified paths after merge are now kept for post-merge change detection, so workspace-level `svn:mergeinfo` updates are included in auto-commit
 
 ### 1.0.7
 - Fix: no-`-r` auto-discovered revisions no longer trigger a second confirmation prompt

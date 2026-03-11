@@ -124,8 +124,9 @@ export function svnStatusAfterMerge(workspace: string): {
     } else if (col1 === 'C') {
       conflicts.push({ path: filePath, type: 'property', resolution: 'theirs-full', isDirectory: isDir(filePath), ignored: false });
     } else {
-      // Non-conflict modified paths (skip clean / unversioned / external)
-      if (col0 === ' ' || col0 === '?' || col0 === 'X') continue;
+      // Non-conflict modified paths (skip entirely clean / unversioned / external)
+      // Keep entries where col1='M' (property-only change, e.g. svn:mergeinfo on the workspace folder)
+      if ((col0 === ' ' && col1 === ' ') || col0 === '?' || col0 === 'X') continue;
       modifications.push({ path: filePath, isDirectory: isDir(filePath) });
     }
   }

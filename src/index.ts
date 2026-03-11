@@ -57,7 +57,7 @@ const program = new Command();
 program
   .name('svn-merge-tool')
   .description('SVN branch merge tool — merge specific revisions one by one')
-  .version('1.0.7', '-v, --version', 'Output version number')
+  .version('1.0.8', '-v, --version', 'Output version number')
   .option('-c, --config <path>', 'Path to YAML config file')
   .option('-w, --workspace <path>', 'SVN working copy directory')
   .option('-f, --from <url>', 'Source branch URL to merge from')
@@ -101,7 +101,7 @@ Examples:
 
 program.parse(process.argv);
 const rcConfig = loadOrCreateRc();
-checkForUpdate('1.0.7', rcConfig);
+checkForUpdate('1.0.8', rcConfig);
 
 const opts = program.opts<{ config?: string; workspace?: string; from?: string; revisions?: string; verbose?: boolean; dryRun?: boolean; output?: string; ignore?: string; commit?: boolean }>();
 
