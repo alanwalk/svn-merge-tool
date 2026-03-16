@@ -21,6 +21,26 @@ const RED = (s: string) => `\x1b[31m${s}\x1b[0m`;
 const YELLOW = (s: string) => `\x1b[33m${s}\x1b[0m`;
 const CYAN = (s: string) => `\x1b[36m${s}\x1b[0m`;
 
+const LOG_PREVIEW_LINES = 3;
+
+function printRevisionLogPreview(revision: number, body: string): void {
+  const lines = body
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(0, LOG_PREVIEW_LINES);
+
+  if (lines.length === 0) {
+    console.log(CYAN(`  r${revision}  (no message)`));
+    return;
+  }
+
+  console.log(CYAN(`  r${revision}  ${lines[0]}`));
+  for (const line of lines.slice(1)) {
+    console.log(CYAN(`         ${line}`));
+  }
+}
+
 /** Copy text to system clipboard (best-effort, silently ignores errors). */
 function copyToClipboard(text: string): void {
   try {
@@ -292,8 +312,7 @@ if (revisions.length === 0) {
   process.stdout.write(' '.repeat(40) + '\r');
   for (const rev of eligible) {
     const body = logMap.get(rev) ?? '';
-    const firstLine = body.split('\n')[0].trim();
-    console.log(CYAN(`  r${rev}  ${firstLine || '(no message)'}` ));
+    printRevisionLogPreview(rev, body);
   }
 
   // --dry-run: stop here without merging
@@ -319,8 +338,7 @@ if (opts.dryRun && revisions.length > 0) {
   process.stdout.write(' '.repeat(40) + '\r');
   for (const rev of revisions) {
     const body = logMap.get(rev) ?? '';
-    const firstLine = body.split('\n')[0].trim();
-    console.log(CYAN(`  r${rev}  ${firstLine || '(no message)'}`));
+    printRevisionLogPreview(rev, body);
   }
   console.log(CYAN('\n[dry-run] No changes made.'));
   process.exit(0);
@@ -334,8 +352,7 @@ if (!autoDiscovered && revisions.length > 0) {
   process.stdout.write(' '.repeat(40) + '\r');
   for (const rev of revisions) {
     const body = logMap.get(rev) ?? '';
-    const firstLine = body.split('\n')[0].trim();
-    console.log(CYAN(`  r${rev}  ${firstLine || '(no message)'}`));
+    printRevisionLogPreview(rev, body);
   }
   if (!promptYN(YELLOW(`\nMerge ${revisions.length} revision(s)? [y/N] `))) {
     console.log(RED('Aborted.'));
