@@ -1,4 +1,5 @@
 import { spawnSync } from 'child_process';
+import * as fs from 'fs';
 
 import { ConflictInfo, ConflictType } from './types';
 import { isDir } from './utils';
@@ -31,6 +32,83 @@ function runSvn(args: string[], cwd?: string, maxBuffer?: number): { stdout: str
   }
 
   return { stdout, stderr, exitCode };
+}
+
+/**
+ * Heuristic: errors that usually indicate file lock/access issues on Windows
+ * or unfinished WC work-queue state caused by previous lock failure.
+ */
+function isRetryableLockError(stderr: string): boolean {
+  const text = stderr.toLowerCase();
+  return (
+    text.includes('e155037') ||
+    text.includes('w155037') ||
+    text.includes('e720005') ||
+    text.includes('access is denied') ||
+    text.includes('拒绝访问') ||
+    text.includes('being used by another process')
+  );
+}
+
+function waitForAnyKey(): void {
+  if (!process.stdin.isTTY) {
+    return;
+  }
+
+  const wasRaw = process.stdin.isRaw;
+  const canSetRawMode = typeof (process.stdin as NodeJS.ReadStream).setRawMode === 'function';
+  const buf = Buffer.alloc(1);
+  try {
+    if (canSetRawMode) {
+      (process.stdin as NodeJS.ReadStream).setRawMode(true);
+      fs.readSync(0, buf, 0, 1, null);
+      return;
+    }
+  } catch {
+    // Fallback to line input below.
+  } finally {
+    if (canSetRawMode) {
+      try {
+        (process.stdin as NodeJS.ReadStream).setRawMode(wasRaw);
+      } catch {
+        // ignore restore errors
+      }
+    }
+  }
+
+  // Fallback when raw mode is unavailable (requires Enter).
+  const lineBuf = Buffer.alloc(16);
+  try {
+    fs.readSync(0, lineBuf, 0, lineBuf.length, null);
+  } catch {
+    // ignore input failures
+  }
+}
+
+function runSvnWithLockPromptRetry(args: string[], workspace: string): { success: boolean; message: string } {
+  while (true) {
+    const { exitCode, stderr } = runSvn(args, workspace);
+    if (exitCode === 0) {
+      return { success: true, message: '' };
+    }
+
+    const lastError = stderr.trim();
+    if (!isRetryableLockError(lastError)) {
+      return { success: false, message: lastError };
+    }
+
+    const lockHint = `${lastError}\nrevert/resolve failed. Please check whether the file is in use (revert/resolve失败，请检查文件是否被占用).`;
+    if (!process.stdin.isTTY) {
+      return {
+        success: false,
+        message: `${lockHint}\nNon-interactive terminal detected. Release file lock, run 'svn cleanup', then retry.`,
+      };
+    }
+
+    process.stdout.write(`${lockHint}\nPress any key to retry... (按任意键重试，Ctrl+C取消)\n`);
+    waitForAnyKey();
+    process.stdout.write('\n');
+  }
 }
 
 /**
@@ -141,11 +219,7 @@ export function svnRevert(
   filePath: string,
   workspace: string
 ): { success: boolean; message: string } {
-  const { exitCode, stderr } = runSvn(['revert', '--depth', 'infinity', filePath], workspace);
-  if (exitCode !== 0) {
-    return { success: false, message: stderr.trim() };
-  }
-  return { success: true, message: '' };
+  return runSvnWithLockPromptRetry(['revert', '--depth', 'infinity', filePath], workspace);
 }
 
 /**
@@ -156,11 +230,7 @@ export function svnResolve(
   accept: 'working' | 'theirs-full',
   workspace: string
 ): { success: boolean; message: string } {
-  const { exitCode, stderr } = runSvn(['resolve', '--accept', accept, filePath], workspace);
-  if (exitCode !== 0) {
-    return { success: false, message: stderr.trim() };
-  }
-  return { success: true, message: '' };
+  return runSvnWithLockPromptRetry(['resolve', '--accept', accept, filePath], workspace);
 }
 
 /**
