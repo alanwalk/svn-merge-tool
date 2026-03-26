@@ -14,14 +14,11 @@ import {
 } from './svn';
 import { MergeOptions } from './types';
 import { checkForUpdate, loadOrCreateRc } from './updater';
-import { compressRevisions, groupSummaryByType, relPath } from './utils';
-
-/** ANSI color helpers */
-const RED = (s: string) => `\x1b[31m${s}\x1b[0m`;
-const YELLOW = (s: string) => `\x1b[33m${s}\x1b[0m`;
-const CYAN = (s: string) => `\x1b[36m${s}\x1b[0m`;
+import { compressRevisions, getPackageVersion, groupSummaryByType, relPath, term } from './utils';
+import { uiCommand } from './webui';
 
 const LOG_PREVIEW_LINES = 3;
+const APP_VERSION = getPackageVersion();
 
 function printRevisionLogPreview(revision: number, body: string): void {
   const lines = body
@@ -31,13 +28,13 @@ function printRevisionLogPreview(revision: number, body: string): void {
     .slice(0, LOG_PREVIEW_LINES);
 
   if (lines.length === 0) {
-    console.log(CYAN(`  r${revision}  (no message)`));
+    console.log(term.cyan(`  r${revision}  (no message)`));
     return;
   }
 
-  console.log(CYAN(`  r${revision}  ${lines[0]}`));
+  console.log(term.cyan(`  r${revision}  ${lines[0]}`));
   for (const line of lines.slice(1)) {
-    console.log(CYAN(`         ${line}`));
+    console.log(term.cyan(`         ${line}`));
   }
 }
 
@@ -72,17 +69,21 @@ function makeStartTs(): string {
 }
 const startTs = makeStartTs();
 
+const subcommand = process.argv[2];
+if (subcommand === 'ui') {
+  void uiCommand(process.argv.slice(3));
+} else {
+
 const program = new Command();
 
 program
-  .name('svn-merge-tool')
+  .name('svnmerge')
   .description('SVN branch merge tool — merge specific revisions one by one')
-  .version('1.0.8', '-v, --version', 'Output version number')
+  .version(APP_VERSION, '-v, --version', 'Output version number')
   .option('-c, --config <path>', 'Path to YAML config file')
   .option('-w, --workspace <path>', 'SVN working copy directory')
   .option('-f, --from <url>', 'Source branch URL to merge from')
   .option('-V, --verbose', 'Show ignored/reverted file details in console output')
-  .option('-d, --dry-run', 'List eligible revisions and their log messages without merging')
   .option('-o, --output <path>', 'Output directory for log and message files (overrides config output)')
   .option('-i, --ignore <paths>', 'Comma-separated paths to ignore (appended to config ignore list)')
   .option('-C, --commit', 'Automatically run svn commit after a successful merge, using the generated message file')
@@ -107,23 +108,21 @@ Default config discovery:
   starting from the current directory, walking up to the filesystem root.
 
 Examples:
-  svn-merge-tool                                  # merge all eligible revisions (prompts confirm)
-  svn-merge-tool -d                               # preview eligible revisions and log, no merge
-  svn-merge-tool -r 1001                          # merge specific revision
-  svn-merge-tool -r 1001 -C                       # merge and auto-commit using generated message
-  svn-merge-tool -r 1001 -i src/gen,assets/auto   # merge ignoring specific paths
-  svn-merge-tool -d -r 84597-84610                # preview specific revisions and log
-  svn-merge-tool -c ./svn.yaml -r 84597-84608,84610
-  svn-merge-tool -w /path/to/copy -f http://svn.example.com/branches/feature -r 1001
-  svn-merge-tool -c ./svn.yaml -w /path/to/override -r 1001,1002,1003
+  svnmerge                                        # merge all eligible revisions (prompts confirm)
+  svnmerge -r 1001                                # merge specific revision
+  svnmerge -r 1001 -C                             # merge and auto-commit using generated message
+  svnmerge -r 1001 -i src/gen,assets/auto         # merge ignoring specific paths
+  svnmerge -c ./svn.yaml -r 84597-84608,84610
+  svnmerge -w /path/to/copy -f http://svn.example.com/branches/feature -r 1001
+  svnmerge -c ./svn.yaml -w /path/to/override -r 1001,1002,1003
 `
   );
 
 program.parse(process.argv);
 const rcConfig = loadOrCreateRc();
-checkForUpdate('1.0.8', rcConfig);
+checkForUpdate(APP_VERSION, rcConfig);
 
-const opts = program.opts<{ config?: string; workspace?: string; from?: string; revisions?: string; verbose?: boolean; dryRun?: boolean; output?: string; ignore?: string; commit?: boolean }>();
+const opts = program.opts<{ config?: string; workspace?: string; from?: string; revisions?: string; verbose?: boolean; output?: string; ignore?: string; commit?: boolean }>();
 
 // ─── Load config file (if provided) ──────────────────────────────────────────
 let configWorkspace: string | undefined;
@@ -133,8 +132,14 @@ let configOutputDir: string | undefined;
 let configVerbose = false;
 let configCommit = false;
 
-// Resolve config path: explicit -c, or auto-discover svn-merge-config.ini
-const configPath = opts.config ?? findDefaultConfig();
+// Resolve config path: explicit -c, or auto-discover from workspace first, then cwd
+let configPath = opts.config;
+if (!configPath && opts.workspace) {
+  configPath = findDefaultConfig(path.resolve(opts.workspace));
+}
+if (!configPath) {
+  configPath = findDefaultConfig();
+}
 
 if (configPath) {
   try {
@@ -146,10 +151,10 @@ if (configPath) {
     configVerbose = cfg.verbose ?? false;
     configCommit = cfg.commit ?? false;
     const label = opts.config ? 'Config loaded' : 'Config auto-detected';
-    console.log(CYAN(`${label}: ${path.resolve(configPath)}`));
+    console.log(term.cyan(`${label}: ${path.resolve(configPath)}`));
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
-    console.error(RED(`Error: ${msg}`));
+    console.error(term.red(`Error: ${msg}`));
     process.exit(1);
   }
 }
@@ -159,11 +164,11 @@ const rawWorkspace = opts.workspace ?? configWorkspace;
 const rawFromUrl = opts.from ?? configFromUrl;
 
 if (!rawWorkspace) {
-  console.error(RED('Error: workspace is required. Provide -w <path>, -c <config>, or place svnmerge.yaml in the current/parent directory.'));
+  console.error(term.red('Error: workspace is required. Provide -w <path>, -c <config>, or place svnmerge.yaml in the current/parent directory.'));
   process.exit(1);
 }
 if (!rawFromUrl) {
-  console.error(RED('Error: from (source URL) is required. Provide -f <url>, -c <config>, or place svnmerge.yaml in the current/parent directory.'));
+  console.error(term.red('Error: from (source URL) is required. Provide -f <url>, -c <config>, or place svnmerge.yaml in the current/parent directory.'));
   process.exit(1);
 }
 
@@ -182,7 +187,7 @@ try {
   svnInfo(workspace);
 } catch (e: unknown) {
   const msg = e instanceof Error ? e.message : String(e);
-  console.error(RED(`Error: ${msg}`));
+  console.error(term.red(`Error: ${msg}`));
   process.exit(1);
 }
 
@@ -209,7 +214,7 @@ if (opts.revisions) {
     .filter(Boolean);
 
   if (rawRevisions.length === 0) {
-    console.error(RED('Error: No revisions specified. Use -r 1001,1002,1003'));
+    console.error(term.red('Error: No revisions specified. Use -r 1001,1002,1003'));
     process.exit(1);
   }
 
@@ -220,11 +225,11 @@ if (opts.revisions) {
       const from = parseInt(rangeMatch[1], 10);
       const to = parseInt(rangeMatch[2], 10);
       if (from <= 0 || to <= 0) {
-        console.error(RED(`Error: Invalid revision range "${raw}". Revisions must be positive integers.`));
+        console.error(term.red(`Error: Invalid revision range "${raw}". Revisions must be positive integers.`));
         process.exit(1);
       }
       if (from > to) {
-        console.error(RED(`Error: Invalid revision range "${raw}": start must be <= end.`));
+        console.error(term.red(`Error: Invalid revision range "${raw}": start must be <= end.`));
         process.exit(1);
       }
       for (let rev = from; rev <= to; rev++) {
@@ -233,7 +238,7 @@ if (opts.revisions) {
     } else {
       const n = parseInt(raw, 10);
       if (isNaN(n) || n <= 0) {
-        console.error(RED(`Error: Invalid revision "${raw}". Use integers or ranges like 1001-1005.`));
+        console.error(term.red(`Error: Invalid revision "${raw}". Use integers or ranges like 1001-1005.`));
         process.exit(1);
       }
       revisions.push(n);
@@ -245,34 +250,33 @@ if (opts.revisions) {
 {
   const cliIgnorePaths = opts.ignore ? opts.ignore.split(',').map((s) => s.trim()).filter(Boolean) : [];
   const allIgnore = [...rcConfig.globalIgnore, ...configIgnoreMerge, ...cliIgnorePaths];
-  console.log(CYAN('─── Parameters ───────────────────────────────────────'));
-  console.log(CYAN(`  workspace : ${workspace}`));
-  console.log(CYAN(`  from      : ${rawFromUrl}`));
-  console.log(CYAN(`  output    : ${outputDir}`));
+  console.log(term.cyan('─── Parameters ───────────────────────────────────────'));
+  console.log(term.cyan(`  workspace : ${workspace}`));
+  console.log(term.cyan(`  from      : ${rawFromUrl}`));
+  console.log(term.cyan(`  output    : ${outputDir}`));
   if (allIgnore.length === 0) {
-    console.log(CYAN('  ignore    : (none)'));
+    console.log(term.cyan('  ignore    : (none)'));
   } else {
-    console.log(CYAN(`  ignore    : ${allIgnore[0]}`));
+    console.log(term.cyan(`  ignore    : ${allIgnore[0]}`));
     for (let i = 1; i < allIgnore.length; i++) {
-      console.log(CYAN(`              ${allIgnore[i]}`));
+      console.log(term.cyan(`              ${allIgnore[i]}`));
     }
   };
-  console.log(CYAN(`  verbose   : ${!!(opts.verbose || configVerbose)}`));
-  console.log(CYAN(`  dry-run   : ${!!opts.dryRun}`));
-  console.log(CYAN(`  commit    : ${!!(opts.commit || configCommit)}`));
-  console.log(CYAN(`  revisions : ${revisions.length ? compressRevisions(revisions) : '(auto — all eligible)'}`));
-  console.log(CYAN('──────────────────────────────────────────────────────'));
+  console.log(term.cyan(`  verbose   : ${!!(opts.verbose || configVerbose)}`));
+  console.log(term.cyan(`  commit    : ${!!(opts.commit || configCommit)}`));
+  console.log(term.cyan(`  revisions : ${revisions.length ? compressRevisions(revisions) : '(auto — all eligible)'}`));
+  console.log(term.cyan('──────────────────────────────────────────────────────'));
 }
 
 // ─── Check for local modifications ──────────────────────────────────────────
 const dirtyLines = svnStatusDirty(workspace);
 if (dirtyLines.length > 0) {
-  console.log(YELLOW('Warning: working copy has uncommitted changes:'));
+  console.log(term.yellow('Warning: working copy has uncommitted changes:'));
   for (const line of dirtyLines) {
-    console.log(YELLOW(`  ${line}`));
+    console.log(term.yellow(`  ${line}`));
   }
-  if (!promptYN(YELLOW('Continue anyway? [y/N] '))) {
-    console.log(RED('Aborted.'));
+  if (!promptYN(term.yellow('Continue anyway? [y/N] '))) {
+    console.log(term.red('Aborted.'));
     process.exit(1);
   }
 }
@@ -282,7 +286,7 @@ try {
   svnUpdate(workspace);
 } catch (e: unknown) {
   const msg = e instanceof Error ? e.message : String(e);
-  console.error(RED(`Error: ${msg}`));
+    console.error(term.red(`Error: ${msg}`));
   process.exit(1);
 }
 
@@ -294,20 +298,20 @@ if (revisions.length === 0) {
     eligible = svnEligibleRevisions(rawFromUrl, workspace);
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
-    console.error(RED(`Error querying eligible revisions: ${msg}`));
+    console.error(term.red(`Error querying eligible revisions: ${msg}`));
     process.exit(1);
   }
 
   if (eligible.length === 0) {
-    console.log(CYAN('No eligible revisions to merge. Working copy is up to date.'));
+    console.log(term.cyan('No eligible revisions to merge. Working copy is up to date.'));
     process.exit(0);
   }
 
   const compressed = compressRevisions(eligible);
-  console.log(CYAN(`Found ${eligible.length} eligible revision(s): ${compressed}`));
+  console.log(term.cyan(`Found ${eligible.length} eligible revision(s): ${compressed}`));
 
   // Fetch log previews (one batch call)
-  process.stdout.write(CYAN('Fetching revision logs...\r'));
+  process.stdout.write(term.cyan('Fetching revision logs...\r'));
   const logMap = svnLogBatch(eligible, rawFromUrl);
   process.stdout.write(' '.repeat(40) + '\r');
   for (const rev of eligible) {
@@ -315,47 +319,26 @@ if (revisions.length === 0) {
     printRevisionLogPreview(rev, body);
   }
 
-  // --dry-run: stop here without merging
-  if (opts.dryRun) {
-    console.log(CYAN('\n[dry-run] No changes made.'));
-    process.exit(0);
-  }
-
-  if (!promptYN(YELLOW(`\nMerge all ${eligible.length} revision(s)? [y/N] `))) {
-    console.log(RED('Aborted.'));
+  if (!promptYN(term.yellow(`\nMerge all ${eligible.length} revision(s)? [y/N] `))) {
+    console.log(term.red('Aborted.'));
     process.exit(0);
   }
   revisions.push(...eligible);
   autoDiscovered = true;
 }
 
-
-// ─── dry-run with explicit -r: show log preview and exit ─────────────────────
-if (opts.dryRun && revisions.length > 0) {
-  console.log(CYAN(`Revisions to merge (${revisions.length}): ${compressRevisions(revisions)}`));
-  process.stdout.write(CYAN('Fetching revision logs...\r'));
-  const logMap = svnLogBatch(revisions, rawFromUrl);
-  process.stdout.write(' '.repeat(40) + '\r');
-  for (const rev of revisions) {
-    const body = logMap.get(rev) ?? '';
-    printRevisionLogPreview(rev, body);
-  }
-  console.log(CYAN('\n[dry-run] No changes made.'));
-  process.exit(0);
-}
-
-// ─── Preview + confirm for explicit -r (non dry-run) ─────────────────────────
+// ─── Preview + confirm for explicit -r ────────────────────────────────────────
 if (!autoDiscovered && revisions.length > 0) {
-  console.log(CYAN(`Revisions to merge (${revisions.length}): ${compressRevisions(revisions)}`));
-  process.stdout.write(CYAN('Fetching revision logs...\r'));
+  console.log(term.cyan(`Revisions to merge (${revisions.length}): ${compressRevisions(revisions)}`));
+  process.stdout.write(term.cyan('Fetching revision logs...\r'));
   const logMap = svnLogBatch(revisions, rawFromUrl);
   process.stdout.write(' '.repeat(40) + '\r');
   for (const rev of revisions) {
     const body = logMap.get(rev) ?? '';
     printRevisionLogPreview(rev, body);
   }
-  if (!promptYN(YELLOW(`\nMerge ${revisions.length} revision(s)? [y/N] `))) {
-    console.log(RED('Aborted.'));
+  if (!promptYN(term.yellow(`\nMerge ${revisions.length} revision(s)? [y/N] `))) {
+    console.log(term.red('Aborted.'));
     process.exit(0);
   }
 }
@@ -380,10 +363,6 @@ const summary = run(options, logger);
 // logger stays open until after summary is written to log
 
 // ─── Console summary helpers ──────────────────────────────────────────────────
-const DONE_GREEN = (s: string) => `\x1b[32m${s}\x1b[0m`;
-const DONE_YELLOW = (s: string) => `\x1b[33m${s}\x1b[0m`;
-const DONE_RED = (s: string) => `\x1b[31m${s}\x1b[0m`;
-
 // ─── Console: conflict summary ────────────────────────────────────────────────
 const verbose = opts.verbose ?? configVerbose;
 const allReverted = summary.results.flatMap((r) => r.reverted ?? []);
@@ -398,26 +377,24 @@ const hasActiveConflicts = summary.results.some((r) => r.conflicts.some((c) => !
 const hasIgnoredConflicts = summary.results.some((r) => r.conflicts.some((c) => c.ignored));
 if (hasActiveConflicts || summary.failed > 0 || (verbose && (uniqueReverted.length > 0 || summary.withConflicts > 0 || hasIgnoredConflicts))) {
   console.log();
-  console.log('\x1b[1mMerge Summary:\x1b[0m');
+  console.log(term.bold('Merge Summary:'));
   logger.log('');
   logger.log('Merge Summary:');
 
   for (const result of summary.results) {
     if (!result.success) {
-      console.log(DONE_RED(`  r${result.revision}  FAILED  ${result.errorMessage ?? ''}`));
+      console.log(term.red(`  r${result.revision}  FAILED  ${result.errorMessage ?? ''}`));
       logger.log(`  r${result.revision}  FAILED  ${result.errorMessage ?? ''}`);
     }
   }
 
   const groups = groupSummaryByType(summary.results, workspace);
-  const GRAY = (s: string) => `\x1b[90m${s}\x1b[0m`;
   const typeLabels: Record<string, string> = {
     tree: 'Tree Conflicts',
     text: 'Text Conflicts',
     property: 'Property Conflicts',
   };
 
-  const DONE_RED_SUMMARY = (s: string) => `\x1b[31m${s}\x1b[0m`;
   for (const [type, entries] of groups) {
     if (entries.length === 0) continue;
     const activeEntries = entries.filter((e) => !e.ignored);
@@ -427,21 +404,21 @@ if (hasActiveConflicts || summary.failed > 0 || (verbose && (uniqueReverted.leng
     const countLabel = verbose && ignoredEntries.length > 0
       ? `${activeEntries.length} + ${ignoredEntries.length} ignored`
       : `${activeEntries.length}`;
-    const titleColor = activeEntries.length === 0 ? GRAY : (type === 'tree' ? DONE_RED_SUMMARY : DONE_YELLOW);
+    const titleColor = activeEntries.length === 0 ? term.gray : (type === 'tree' ? term.red : term.yellow);
     const titleLine = `  ${typeLabels[type]} (${countLabel}):`;
     console.log(titleColor(titleLine));
     logger.log(titleLine);
     for (const e of activeEntries) {
       const kindTag = e.isDirectory ? '[D]' : '[F]';
       const line = `    ${kindTag}  ${e.relPath}  (${e.resolution})`;
-      console.log((type === 'tree' ? DONE_RED_SUMMARY : DONE_YELLOW)(line));
+      console.log((type === 'tree' ? term.red : term.yellow)(line));
       logger.log(line);
     }
     if (verbose) {
       for (const e of ignoredEntries) {
         const kindTag = e.isDirectory ? '[D]' : '[F]';
         const line = `    ${kindTag}  ${e.relPath}  (${e.resolution})`;
-        console.log(GRAY(line));
+        console.log(term.gray(line));
         logger.log(line);
       }
     }
@@ -449,12 +426,12 @@ if (hasActiveConflicts || summary.failed > 0 || (verbose && (uniqueReverted.leng
 
   if (verbose && uniqueRevertedRel.length > 0) {
     const revertTitle = `  Ignored (${uniqueRevertedRel.length}):`;
-    console.log(GRAY(revertTitle));
+    console.log(term.gray(revertTitle));
     logger.log(revertTitle);
     for (const r of uniqueRevertedRel) {
       const kindTag = r.isDirectory ? '[D]' : '[F]';
       const line = `    ${kindTag}  ${r.relPath}  (ignored)`;
-      console.log(GRAY(line));
+      console.log(term.gray(line));
       logger.log(line);
     }
   }
@@ -471,7 +448,7 @@ logger.appendRaw('='.repeat(72) + '\n');
 if (rcConfig.copyToClipboard) {
   copyToClipboard(mergeMessage);
   const clipMsg = 'Merge message copied to clipboard.';
-  console.log(CYAN(clipMsg));
+  console.log(term.cyan(clipMsg));
   logger.log(clipMsg);
 }
 
@@ -481,9 +458,9 @@ console.log();
 console.log(
   [
     `Done. Total: ${summary.total}`,
-    DONE_GREEN(`OK: ${summary.succeeded}`),
-    summary.withConflicts > 0 ? DONE_YELLOW(`Conflicts: ${summary.withConflicts}`) : null,
-    summary.failed > 0 ? DONE_RED(`Failed: ${summary.failed}`) : null,
+    term.green(`OK: ${summary.succeeded}`),
+    summary.withConflicts > 0 ? term.yellow(`Conflicts: ${summary.withConflicts}`) : null,
+    summary.failed > 0 ? term.red(`Failed: ${summary.failed}`) : null,
   ]
     .filter(Boolean)
     .join('  ')
@@ -507,13 +484,13 @@ if (shouldCommit) {
       reasons.push(`unresolved conflicts (${conflictRevs})`);
     }
     const msg = `Auto-commit skipped: ${reasons.join(', ')}.`;
-    console.log(DONE_YELLOW(`\n${msg}`));
+    console.log(term.yellow(`\n${msg}`));
     logger.log(msg);
   } else if (summary.succeeded === 0) {
-    console.log(DONE_YELLOW('\nAuto-commit skipped: no revisions were successfully merged.'));
+    console.log(term.yellow('\nAuto-commit skipped: no revisions were successfully merged.'));
     logger.log('Auto-commit skipped: no revisions were successfully merged.');
   } else {
-    console.log(DONE_GREEN('\nRunning svn commit...'));
+    console.log(term.green('\nRunning svn commit...'));
     logger.log('Running svn commit...');
     try {
       const allModifiedPaths = [
@@ -524,7 +501,7 @@ if (shouldCommit) {
         ).values(),
       ].map((m) => m.path);
       const commitOut = svnCommit(workspace, mergeMessage, allModifiedPaths.length > 0 ? allModifiedPaths : undefined);
-      console.log(DONE_GREEN('Commit successful.'));
+      console.log(term.green('Commit successful.'));
       if (commitOut) {
         console.log(commitOut);
         logger.log(commitOut);
@@ -532,7 +509,7 @@ if (shouldCommit) {
       logger.log('Commit successful.');
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
-      console.error(DONE_RED(`Auto-commit failed: ${msg}`));
+      console.error(term.red(`Auto-commit failed: ${msg}`));
       logger.log(`Auto-commit failed: ${msg}`);
       logger.close();
       process.exit(1);
@@ -542,3 +519,4 @@ if (shouldCommit) {
 
 logger.close();
 process.exit(summary.failed > 0 ? 1 : 0);
+}

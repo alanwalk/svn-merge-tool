@@ -1,7 +1,9 @@
 import { spawnSync } from 'child_process';
 import * as fs from 'fs';
+import * as path from 'path';
 
-import { ConflictInfo, ConflictType } from './types';
+import { tr } from './i18n';
+import { ConflictInfo, LogEntry } from './types';
 import { isDir } from './utils';
 
 /** Decode buffer output, trying UTF-8 first then GBK-compatible latin1 fallback */
@@ -133,15 +135,64 @@ export function svnStatusDirty(workspace: string): string[] {
 }
 
 /**
+ * Auto-clean a dirty workspace:
+ * - Revert versioned changes
+ * - Remove unversioned files/folders
+ */
+export function svnCleanWorkspace(workspace: string): {
+  reverted: number;
+  removed: number;
+  failed: string[];
+} {
+  const { stdout, stderr, exitCode } = runSvn(['status', workspace]);
+  if (exitCode !== 0) {
+    throw new Error(`svn status failed:\n${stderr.trim()}`);
+  }
+
+  let reverted = 0;
+  let removed = 0;
+  const failed: string[] = [];
+
+  for (const line of stdout.split(/\r?\n/)) {
+    if (line.length < 2) continue;
+    const col0 = line[0];
+    const col1 = line[1];
+    if (col0 === 'X') continue;
+    if (col0 === ' ' && col1 === ' ') continue;
+
+    const rawPath = line.slice(8).trim();
+    if (!rawPath) continue;
+
+    if (col0 === '?') {
+      const absPath = path.isAbsolute(rawPath) ? rawPath : path.resolve(workspace, rawPath);
+      try {
+        fs.rmSync(absPath, { recursive: true, force: true });
+        removed++;
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        failed.push(`${rawPath}: ${msg}`);
+      }
+      continue;
+    }
+
+    const { success, message } = svnRevert(rawPath, workspace);
+    if (success) reverted++;
+    else failed.push(`${rawPath}: ${message}`);
+  }
+
+  return { reverted, removed, failed };
+}
+
+/**
  * Run svn update on the workspace.
  * Throws if the update fails.
  */
-export function svnUpdate(workspace: string): void {
-  process.stdout.write('Updating working copy... ');
+export function svnUpdate(workspace: string, lang: 'zh-CN' | 'en' = 'en'): void {
+  process.stdout.write(tr(lang, 'svnUpdateWorkingCopy'));
   const { stdout, stderr, exitCode } = runSvn(['update', workspace], workspace);
   if (exitCode !== 0) {
     process.stdout.write('\n');
-    throw new Error(`svn update failed:\n${stderr.trim()}`);
+    throw new Error(tr(lang, 'svnUpdateFailed', { error: stderr.trim() }));
   }
   // Print the last non-empty line (usually "Updated to revision NNNN." or "At revision NNNN.")
   const lastLine = stdout.split(/\r?\n/).filter((l) => l.trim()).pop() ?? '';
@@ -183,7 +234,11 @@ export function svnStatusAfterMerge(workspace: string): {
   conflicts: ConflictInfo[];
   modifications: { path: string; isDirectory: boolean }[];
 } {
-  const { stdout } = runSvn(['status', workspace]);
+  const { stdout, stderr, exitCode } = runSvn(['status', workspace]);
+  if (exitCode !== 0) {
+    throw new Error(`svn status failed after merge:\n${stderr.trim() || stdout.trim()}`);
+  }
+
   const conflicts: ConflictInfo[] = [];
   const modifications: { path: string; isDirectory: boolean }[] = [];
 
@@ -318,6 +373,63 @@ function parseSvnLogOutput(stdout: string, resultMap: Map<number, string>): void
   }
 }
 
+function parseSvnLogVerbose(stdout: string): LogEntry[] {
+  const results: LogEntry[] = [];
+  const sepRe = /^-{10,}$/;
+  const headerRe = /^r(\d+)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|/;
+  const lines = stdout.split(/\r?\n/);
+  let i = 0;
+
+  while (i < lines.length) {
+    if (!sepRe.test(lines[i])) { i++; continue; }
+    i++;
+    if (i >= lines.length) break;
+
+    const headerMatch = lines[i].match(headerRe);
+    if (!headerMatch) { i++; continue; }
+
+    const revision = parseInt(headerMatch[1], 10);
+    const author = headerMatch[2].trim();
+    const rawDate = headerMatch[3].trim();
+    const dateMatch = rawDate.match(/^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} [+-]\d{4})/);
+    let date = rawDate;
+    if (dateMatch) {
+      try {
+        date = new Date(dateMatch[1]).toISOString();
+      } catch {
+        date = rawDate;
+      }
+    }
+
+    i++;
+    if (i < lines.length && lines[i].trim() === '') i++;
+
+    const paths: string[] = [];
+    if (i < lines.length && /^Changed paths:/i.test(lines[i])) {
+      i++;
+      while (i < lines.length && lines[i].trim() !== '' && !sepRe.test(lines[i])) {
+        const trimmed = lines[i].trim();
+        if (trimmed) paths.push(trimmed);
+        i++;
+      }
+      if (i < lines.length && lines[i].trim() === '') i++;
+    }
+
+    const bodyLines: string[] = [];
+    while (i < lines.length && !sepRe.test(lines[i])) {
+      bodyLines.push(lines[i]);
+      i++;
+    }
+
+    while (bodyLines.length > 0 && bodyLines[bodyLines.length - 1].trim() === '') bodyLines.pop();
+    while (bodyLines.length > 0 && bodyLines[0].trim() === '') bodyLines.shift();
+
+    results.push({ revision, author, date, message: bodyLines.join('\n'), paths });
+  }
+
+  return results;
+}
+
 /**
  * Run `svn commit` on the workspace with the given message.
  * If targets are provided, only those paths are committed; otherwise the whole workspace.
@@ -354,4 +466,59 @@ export function svnLogBatch(revisions: number[], fromUrl: string): Map<number, s
   }
 
   return resultMap;
+}
+
+/**
+ * Fetch a page of log entries from fromUrl, starting from startRev going backwards.
+ * Uses `svn log --verbose --limit N -r startRev:stopRev`.
+ * Returns parsed LogEntry array (newest first).
+ */
+export function svnLogPage(fromUrl: string, startRev: string, limit: number, stopRev = 1): LogEntry[] {
+  const { stdout, exitCode } = runSvn([
+    'log', fromUrl,
+    '-r', `${startRev}:${stopRev}`,
+    '--limit', String(limit),
+    '--verbose',
+  ]);
+  if (exitCode !== 0 || !stdout.trim()) return [];
+  return parseSvnLogVerbose(stdout);
+}
+
+/**
+ * Get the HEAD revision number of a given URL.
+ * Returns -1 on failure.
+ */
+export function svnHeadRevision(fromUrl: string): number {
+  const { stdout, exitCode } = runSvn(['info', fromUrl, '--show-item', 'revision']);
+  if (exitCode !== 0 || !stdout.trim()) return -1;
+  const n = parseInt(stdout.trim(), 10);
+  return isNaN(n) ? -1 : n;
+}
+
+/**
+ * Get the SVN URL of a working copy directory.
+ * Returns null on failure.
+ */
+export function svnWorkspaceUrl(workspace: string): string | null {
+  const { stdout, exitCode } = runSvn(['info', workspace, '--show-item', 'url']);
+  if (exitCode !== 0 || !stdout.trim()) return null;
+  return stdout.trim();
+}
+
+/**
+ * Get the revision at which the working copy branch was created (copied).
+ * Uses `svn log --stop-on-copy -r 1:HEAD --limit 1`.
+ * Returns 1 if it cannot be determined.
+ */
+export function svnBranchCreationRevision(workspaceUrl: string): number {
+  const { stdout, exitCode } = runSvn([
+    'log', workspaceUrl,
+    '--stop-on-copy',
+    '-r', '1:HEAD',
+    '--limit', '1',
+    '--xml',
+  ]);
+  if (exitCode !== 0 || !stdout.trim()) return 1;
+  const match = stdout.match(/revision="(\d+)"/);
+  return match ? parseInt(match[1], 10) : 1;
 }

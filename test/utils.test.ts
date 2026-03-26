@@ -109,6 +109,11 @@ describe('isIgnored', () => {
     // 'src' should NOT match 'srcgen/file.ts'
     assert.equal(isIgnored(abs, ws, ['src']), false);
   });
+
+  test('supports absolute ignore paths from global config', () => {
+    const abs = path.join(ws, 'vendor', 'lib.ts');
+    assert.equal(isIgnored(abs, ws, [abs]), true);
+  });
 });
 
 // ── compressRevisions ─────────────────────────────────────────────────────────

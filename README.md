@@ -10,7 +10,6 @@ A CLI tool for merging specific SVN revisions one by one, with automatic conflic
 - **Text / Property conflicts** → accept incoming (`theirs-full`)
 - **Tree conflicts** → keep local (`working`)
 - **Ignore rules** — paths matching `ignore-merge` patterns are always discarded (reverted), even when they produce no conflict
-- `--dry-run` mode — preview eligible revisions and their log messages without making any changes
 - `-C, --commit` — automatically run `svn commit` after a successful merge, using the generated message file as the commit log
 - Minimal console progress with color-coded results; full details streamed to `svnmerge-<timestamp>.log`
 - Commit message (revision range + `svn log` bodies) appended to the log file at the end of each run
@@ -23,7 +22,7 @@ A CLI tool for merging specific SVN revisions one by one, with automatic conflic
 git clone https://github.com/<you>/svn-merge-tool.git
 cd svn-merge-tool
 npm install
-npm link          # makes `svn-merge-tool` available globally
+npm link          # makes `svnmerge` available globally
 ```
 
 > Requires Node.js ≥ 18 and `svn` on PATH.
@@ -31,7 +30,7 @@ npm link          # makes `svn-merge-tool` available globally
 ## Usage
 
 ```
-svn-merge-tool [options]
+svnmerge [options]
 
 Options:
   -c, --config <path>       Path to YAML config file
@@ -41,7 +40,6 @@ Options:
   -o, --output <path>       Output directory for log and message files (overrides config)
   -i, --ignore <paths>      Comma-separated paths to ignore (appended to config ignore list)
   -V, --verbose             Show ignored/reverted file details in console output
-  -d, --dry-run             List eligible revisions and their log messages, no merge
   -C, --commit              Auto svn commit after successful merge (uses generated message file)
   -v, --version             Output version number
   -h, --help                Display help
@@ -51,29 +49,25 @@ Options:
 
 ```bash
 # Auto-discover svnmerge.yaml from cwd upward
-svn-merge-tool -r 84597-84608,84610
-
-# Preview eligible revisions without merging
-svn-merge-tool -d
-svn-merge-tool -d -r 84597-84610
+svnmerge -r 84597-84608,84610
 
 # Merge and auto-commit using the generated message file
-svn-merge-tool -r 1001 -C
+svnmerge -r 1001 -C
 
 # Ignore specific paths on the command line (appended to config ignore list)
-svn-merge-tool -r 1001 -i src/thirdparty/generated,assets/auto
+svnmerge -r 1001 -i src/thirdparty/generated,assets/auto
 
 # Custom output directory
-svn-merge-tool -r 1001 -o /logs/svn
+svnmerge -r 1001 -o /logs/svn
 
 # Explicit config file
-svn-merge-tool -c ./svn.yaml -r 84597-84608,84610
+svnmerge -c ./svn.yaml -r 84597-84608,84610
 
 # All options on the command line
-svn-merge-tool -w /path/to/copy -f http://svn.example.com/branches/feature -r 1001,1002
+svnmerge -w /path/to/copy -f http://svn.example.com/branches/feature -r 1001,1002
 
 # Override workspace from config
-svn-merge-tool -c ./svn.yaml -w /path/to/override -r 1001,1002,1003
+svnmerge -c ./svn.yaml -w /path/to/override -r 1001,1002,1003
 ```
 
 ## Config File

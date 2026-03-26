@@ -18,6 +18,10 @@ let runOptionsExpanded = false;
 let autoLoadingRecent = false;
 let stopAutoLoadRecent = false;
 let autoLoadRecentPromise = null;
+let activeMergeAbortController = null;
+let mergeRunFinished = false;
+let mergeCleanupFinished = false;
+let mergeFinalized = false;
 const RECENT_LOAD_PAGES_PER_REQUEST = 5;
 const MESSAGE_PREVIEW_MAX_CHARS = 42;
 let runOptions = {
@@ -53,6 +57,7 @@ const I18N = {
         safetyWorkspaceMissing: '缺少工作目录：执行合并需要 -w 指定 working copy。',
         safetyAutoCommit: '已启用自动提交。请仔细检查选中的 revisions 和提交信息。',
         searchPlaceholder: '按日志消息、变更路径、作者、Revision 过滤...',
+        searchPlaceholderEmpty: '请先选择至少一个搜索规则...',
         filterOptions: '过滤选项',
         messages: '日志消息',
         paths: '变更路径',
@@ -104,7 +109,14 @@ const I18N = {
         mergedFromSourceBranch: '{revs} 从来源分支合并',
         continue: '继续',
         cancel: '取消',
+        back: '返回',
         running: '执行中...',
+        cancelMerge: '取消合并',
+        confirmCancelMergeTitle: '确认取消合并',
+        confirmCancelMergeText: '确定要取消当前合并吗？这会中断当前任务，并清理工作副本到无修改状态。',
+        confirmAction: '确定',
+        mergeCanceledClean: '已取消合并，工作副本已清理完成。',
+        mergeCanceledDirty: '取消完成，但工作副本尚未完全清理，请查看上方阶段日志。',
         doneNoCommit: '完成（不提交）',
         commit: '提交',
         committing: '提交中...',
@@ -157,6 +169,7 @@ const I18N = {
         safetyWorkspaceMissing: 'Workspace missing: a working copy is required for merge. Relaunch with -w.',
         safetyAutoCommit: 'Auto-commit is enabled. Please verify selected revisions and commit message carefully.',
         searchPlaceholder: 'Filter by Messages, Paths, Authors, Revisions...',
+        searchPlaceholderEmpty: 'Select at least one search rule...',
         filterOptions: 'Filter options',
         messages: 'Messages',
         paths: 'Paths',
@@ -208,7 +221,14 @@ const I18N = {
         mergedFromSourceBranch: '{revs} merged from source branch',
         continue: 'Continue',
         cancel: 'Cancel',
+        back: 'Back',
         running: 'Running...',
+        cancelMerge: 'Cancel Merge',
+        confirmCancelMergeTitle: 'Confirm Cancel Merge',
+        confirmCancelMergeText: 'Are you sure you want to cancel the current merge? This will stop the task and clean the workspace back to a no-modifications state.',
+        confirmAction: 'Confirm',
+        mergeCanceledClean: 'Merge canceled and workspace cleanup finished.',
+        mergeCanceledDirty: 'Cancellation finished, but workspace cleanup still needs attention. Check the pipeline above.',
         doneNoCommit: 'Done (no commit)',
         commit: 'Commit',
         committing: 'Committing...',
@@ -274,6 +294,29 @@ function setText(id, text) {
     if (el) el.textContent = text;
 }
 
+function getSelectedSearchLabels(opts) {
+    const labels = [];
+    if (opts.messages) labels.push(t('messages'));
+    if (opts.paths) labels.push(t('paths'));
+    if (opts.authors) labels.push(t('authors'));
+    if (opts.revisions) labels.push(t('revisions'));
+    return labels;
+}
+
+function buildSearchPlaceholder(opts) {
+    const labels = getSelectedSearchLabels(opts);
+    if (labels.length === 0) return t('searchPlaceholderEmpty');
+    if (currentLang === 'zh-CN') {
+        return '按' + labels.join('、') + '过滤...';
+    }
+    return 'Filter by ' + labels.join(', ') + '...';
+}
+
+function updateSearchPlaceholder() {
+    const searchInputEl = document.getElementById('search-input');
+    if (searchInputEl) searchInputEl.placeholder = buildSearchPlaceholder(getFilterOptions());
+}
+
 function applyLanguage() {
     document.documentElement.lang = currentLang;
     setText('lang-label', t('language'));
@@ -302,9 +345,10 @@ function applyLanguage() {
     setText('confirm-btn', t('start'));
     setText('mv-title', t('mergeTitle'));
     setText('mv-overlay-title', t('commitMessageTitle'));
+    setText('mv-cancel-overlay-title', t('confirmCancelMergeTitle'));
+    setText('mv-cancel-overlay-text', t('confirmCancelMergeText'));
 
-    const searchInputEl = document.getElementById('search-input');
-    if (searchInputEl) searchInputEl.placeholder = t('searchPlaceholder');
+    updateSearchPlaceholder();
     const optOutputEl = document.getElementById('opt-output');
     if (optOutputEl) optOutputEl.placeholder = t('outputPlaceholder');
     const optIgnoreEl = document.getElementById('opt-ignore');
@@ -600,13 +644,17 @@ function updateSafetyTip() {
 
 // -- Filter & search ------------------------------------------------------
 function getFilterOptions() {
+    function isChecked(id) {
+        var el = document.getElementById(id);
+        return !!(el && el.checked);
+    }
     return {
-        messages: document.getElementById('f-messages').checked,
-        paths: document.getElementById('f-paths').checked,
-        authors: document.getElementById('f-authors').checked,
-        revisions: document.getElementById('f-revisions').checked,
-        regex: document.getElementById('f-regex').checked,
-        caseSensitive: document.getElementById('f-case').checked,
+        messages: isChecked('f-messages'),
+        paths: isChecked('f-paths'),
+        authors: isChecked('f-authors'),
+        revisions: isChecked('f-revisions'),
+        regex: isChecked('f-regex'),
+        caseSensitive: isChecked('f-case'),
     };
 }
 
@@ -1023,6 +1071,7 @@ const regexError = document.getElementById('regex-error');
 function validateAndApply() {
     const opts = getFilterOptions();
     const term = searchInput.value;
+    updateSearchPlaceholder();
     if (opts.regex && term) {
         try {
             new RegExp(term);
@@ -1045,16 +1094,26 @@ function validateAndApply() {
     });
 }
 
-function scheduleFilter() {
+function scheduleFilter(delayMs) {
     if (searchDebounceTimer !== null) clearTimeout(searchDebounceTimer);
-    searchDebounceTimer = setTimeout(validateAndApply, 200);
+    searchDebounceTimer = setTimeout(validateAndApply, typeof delayMs === 'number' ? delayMs : 200);
 }
 
-searchInput.addEventListener('input', scheduleFilter);
+searchInput.addEventListener('input', function () { scheduleFilter(200); });
 document.querySelectorAll('#filter-dropdown input[type=checkbox]').forEach(cb => {
-    cb.addEventListener('change', validateAndApply);
+    cb.addEventListener('change', function () { scheduleFilter(0); });
 });
-document.getElementById('hide-merged').addEventListener('change', validateAndApply);
+document.querySelectorAll('#filter-dropdown .filter-item').forEach(item => {
+    item.addEventListener('click', function (e) {
+        var target = e.target;
+        if (target && target.closest && (target.closest('label') || target.closest('input'))) return;
+        var checkbox = item.querySelector('input[type=checkbox]');
+        if (!checkbox) return;
+        checkbox.checked = !checkbox.checked;
+        checkbox.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+});
+document.getElementById('hide-merged').addEventListener('change', function () { scheduleFilter(0); });
 
 document.getElementById('refresh-btn').addEventListener('click', () => {
     window.location.reload();
@@ -1166,135 +1225,8 @@ function relPathForSummary(absPath) {
     return absNorm;
 }
 
-function showMergeView(revisions, options) {
-    var tpl = document.getElementById('merge-view-template');
-    if (!tpl || !tpl.content) {
-        throw new Error('Missing merge-view-template');
-    }
-
-    document.body.innerHTML = '';
-    document.body.appendChild(tpl.content.cloneNode(true));
-
-    // Build a rev -> entry map from allEntries for showing commit messages
-    var entryMap = {};
-    for (var i = 0; i < allEntries.length; i++) {
-        entryMap[allEntries[i].revision] = allEntries[i];
-    }
-
-    var statusEl = document.getElementById('mv-status');
-    statusEl.textContent = t('pendingStatus', { count: revisions.length });
-
-    // Build preview section listing all pending commits
-    var sectionsEl = document.getElementById('mv-sections');
-    var previewDiv = document.createElement('div');
-    previewDiv.className = 'mv-section';
-    previewDiv.style.borderLeftColor = '#0078d4';
-
-    var rowsHtml = '';
-    revisions.forEach(function (rev) {
-        var entry = entryMap[rev];
-        var msg = entry ? (entry.message || t('noMessageShort')).split('\n')[0].trim() : t('noMessageShort');
-        rowsHtml += '<div style="padding:3px 0 3px 4px;font-family:Consolas,monospace;font-size:12px;">' +
-            '<span style="color:#0078d4;font-weight:600;display:inline-block;min-width:72px;">' + htmlEsc(t('revisionPrefix')) + htmlEsc(String(rev)) + '</span>' +
-            htmlEsc(msg) + '</div>';
-    });
-
-    previewDiv.innerHTML =
-        '<div class="mv-section-hd" style="cursor:default">' +
-        '<span class="mv-section-icon">\uD83D\uDCCB</span>' +
-        '<span class="mv-section-title">' + htmlEsc(t('commitsToMerge', { count: revisions.length })) + '</span>' +
-        '</div>' +
-        '<div class="mv-section-bd"><div style="padding:8px 14px;">' + rowsHtml + '</div></div>';
-    sectionsEl.appendChild(previewDiv);
-
-    // Set commit message textarea (for when user commits after merge)
-    var revLabel = revisions.map(function (r) { return t('revisionPrefix') + r; }).join(' ');
-    document.getElementById('mv-commit-msg').value = t('mergedFromSourceBranch', { revs: revLabel });
-
-    // Show preview bottombar (Continue/Cancel), hide merge bottombar
-    document.getElementById('mv-preview-bar').style.display = '';
-    document.getElementById('mv-merge-bar').style.display = 'none';
-    document.getElementById('mv-cancel-btn').textContent = t('cancel');
-    document.getElementById('mv-continue-btn').textContent = t('continue');
-    document.getElementById('mv-commit-btn').textContent = t('commit');
-    document.getElementById('mv-done-btn').textContent = t('doneNoCommit');
-    document.getElementById('mv-overlay-cancel').textContent = t('cancel');
-    document.getElementById('mv-overlay-ok').textContent = t('commit');
-
-    document.getElementById('mv-cancel-btn').addEventListener('click', function () {
-        window.location.reload();
-    });
-
-    document.getElementById('mv-continue-btn').addEventListener('click', function () {
-        var continueBtn = document.getElementById('mv-continue-btn');
-        var cancelBtn = document.getElementById('mv-cancel-btn');
-        continueBtn.disabled = true;
-        cancelBtn.disabled = true;
-
-        // Remove preview section
-        previewDiv.remove();
-
-        // Switch to merge bottombar
-        document.getElementById('mv-preview-bar').style.display = 'none';
-        document.getElementById('mv-merge-bar').style.display = '';
-
-        if (options && options.autoCommit) {
-            document.getElementById('mv-commit-status').textContent = t('autoCommitEnabledHint');
-        }
-
-        statusEl.textContent = t('running');
-
-        document.getElementById('mv-done-btn').addEventListener('click', async function () {
-            document.getElementById('mv-done-btn').disabled = true;
-            document.getElementById('mv-commit-btn').disabled = true;
-            await fetch('/api/done', { method: 'POST' }).catch(function () { });
-            document.getElementById('mv-commit-status').textContent = t('doneCloseTab');
-        });
-
-        document.getElementById('mv-commit-btn').addEventListener('click', function () {
-            document.getElementById('mv-overlay').style.display = 'flex';
-            document.getElementById('mv-commit-msg').focus();
-        });
-        document.getElementById('mv-overlay-cancel').addEventListener('click', function () {
-            document.getElementById('mv-overlay').style.display = 'none';
-        });
-        document.getElementById('mv-overlay-ok').addEventListener('click', async function () {
-            var msg = (document.getElementById('mv-commit-msg').value || '').trim();
-            if (!msg) return;
-            var okBtn = document.getElementById('mv-overlay-ok');
-            okBtn.disabled = true; okBtn.textContent = t('committing');
-            try {
-                var r2 = await fetch('/api/commit', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ message: msg }),
-                });
-                var d2 = await r2.json();
-                document.getElementById('mv-overlay').style.display = 'none';
-                var st = document.getElementById('mv-commit-status');
-                if (d2.ok) {
-                    st.style.color = '#107c10';
-                    st.textContent = t('committedCloseTab');
-                    document.getElementById('mv-commit-btn').disabled = true;
-                    document.getElementById('mv-done-btn').disabled = true;
-                } else {
-                    st.style.color = '#c42b1c';
-                    st.textContent = t('commitFailed', { err: htmlEsc(d2.error || 'unknown') });
-                    okBtn.disabled = false; okBtn.textContent = t('commit');
-                }
-            } catch (err) {
-                okBtn.disabled = false; okBtn.textContent = t('commit');
-            }
-        });
-
-        runMerge(revisions, options || {});
-    }); // end mv-continue-btn click
-}
-
-async function runMerge(revisions, options) {
-    var sectionsEl = document.getElementById('mv-sections');
-    var statusEl = document.getElementById('mv-status');
-    var currentSection = null; // { element, logEl, kind }
+function createMergeSectionController(sectionsEl) {
+    var currentSection = null;
 
     function startSection(title, kind) {
         if (currentSection) finalizeSection(null);
@@ -1345,39 +1277,241 @@ async function runMerge(revisions, options) {
         }
     }
 
+    return {
+        startSection: startSection,
+        finalizeSection: finalizeSection,
+        appendLog: appendLog,
+    };
+}
+
+function setMergeCancelAvailable(available) {
+    var btn = document.getElementById('mv-run-cancel-btn');
+    if (!btn) return;
+    btn.disabled = !available;
+    btn.style.display = available ? '' : 'none';
+}
+
+async function consumeEventStream(res, onEvent) {
+    if (!res.ok || !res.body) {
+        throw new Error(t('failedToStartMerge', { code: res.status }));
+    }
+
+    var reader = res.body.getReader();
+    var decoder = new TextDecoder();
+    var buf = '';
+    while (true) {
+        var chunk = await reader.read();
+        if (chunk.done) break;
+        buf += decoder.decode(chunk.value, { stream: true });
+        var lines = buf.split('\n');
+        buf = lines.pop();
+        for (var i = 0; i < lines.length; i++) {
+            var line = lines[i];
+            if (!line.startsWith('data: ')) continue;
+            var payload = line.slice(6);
+            if (payload === '[DONE]') continue;
+            try {
+                onEvent(JSON.parse(payload));
+            } catch (_) { }
+        }
+    }
+}
+
+function showMergeView(revisions, options) {
+    var tpl = document.getElementById('merge-view-template');
+    if (!tpl || !tpl.content) {
+        throw new Error('Missing merge-view-template');
+    }
+
+    document.body.innerHTML = '';
+    document.body.appendChild(tpl.content.cloneNode(true));
+
+    // Build a rev -> entry map from allEntries for showing commit messages
+    var entryMap = {};
+    for (var i = 0; i < allEntries.length; i++) {
+        entryMap[allEntries[i].revision] = allEntries[i];
+    }
+
+    var statusEl = document.getElementById('mv-status');
+    statusEl.textContent = t('pendingStatus', { count: revisions.length });
+    mergeRunFinished = false;
+    mergeCleanupFinished = false;
+    mergeFinalized = false;
+    activeMergeAbortController = null;
+    var sectionController = createMergeSectionController(document.getElementById('mv-sections'));
+
+    // Build preview section listing all pending commits
+    var sectionsEl = document.getElementById('mv-sections');
+    var previewDiv = document.createElement('div');
+    previewDiv.className = 'mv-section';
+    previewDiv.style.borderLeftColor = '#0078d4';
+
+    var rowsHtml = '';
+    revisions.forEach(function (rev) {
+        var entry = entryMap[rev];
+        var msg = entry ? (entry.message || t('noMessageShort')).split('\n')[0].trim() : t('noMessageShort');
+        rowsHtml += '<div style="padding:3px 0 3px 4px;font-family:Consolas,monospace;font-size:12px;">' +
+            '<span style="color:#0078d4;font-weight:600;display:inline-block;min-width:72px;">' + htmlEsc(t('revisionPrefix')) + htmlEsc(String(rev)) + '</span>' +
+            htmlEsc(msg) + '</div>';
+    });
+
+    previewDiv.innerHTML =
+        '<div class="mv-section-hd" style="cursor:default">' +
+        '<span class="mv-section-icon">\uD83D\uDCCB</span>' +
+        '<span class="mv-section-title">' + htmlEsc(t('commitsToMerge', { count: revisions.length })) + '</span>' +
+        '</div>' +
+        '<div class="mv-section-bd"><div style="padding:8px 14px;">' + rowsHtml + '</div></div>';
+    sectionsEl.appendChild(previewDiv);
+
+    // Set commit message textarea (for when user commits after merge)
+    var revLabel = revisions.map(function (r) { return t('revisionPrefix') + r; }).join(' ');
+    document.getElementById('mv-commit-msg').value = t('mergedFromSourceBranch', { revs: revLabel });
+
+    // Show preview bottombar (Continue/Cancel), hide merge bottombar
+    document.getElementById('mv-preview-bar').style.display = '';
+    document.getElementById('mv-merge-bar').style.display = 'none';
+    document.getElementById('mv-cancel-btn').textContent = t('cancel');
+    document.getElementById('mv-continue-btn').textContent = t('continue');
+    document.getElementById('mv-title').textContent = t('mergeTitle');
+    document.getElementById('mv-run-cancel-btn').textContent = t('cancelMerge');
+    document.getElementById('mv-back-btn').textContent = t('back');
+    document.getElementById('mv-commit-btn').textContent = t('commit');
+    document.getElementById('mv-done-btn').textContent = t('doneNoCommit');
+    document.getElementById('mv-overlay-title').textContent = t('commitMessageTitle');
+    document.getElementById('mv-overlay-cancel').textContent = t('cancel');
+    document.getElementById('mv-overlay-ok').textContent = t('commit');
+    document.getElementById('mv-cancel-overlay-title').textContent = t('confirmCancelMergeTitle');
+    document.getElementById('mv-cancel-overlay-text').textContent = t('confirmCancelMergeText');
+    document.getElementById('mv-cancel-overlay-dismiss').textContent = t('cancel');
+    document.getElementById('mv-cancel-overlay-confirm').textContent = t('confirmAction');
+
+    function hideCancelOverlay() {
+        document.getElementById('mv-cancel-overlay').style.display = 'none';
+    }
+
+    function showCancelOverlay() {
+        document.getElementById('mv-cancel-overlay').style.display = 'flex';
+    }
+
+    function showBackButton() {
+        document.getElementById('mv-back-btn').style.display = '';
+    }
+
+    document.getElementById('mv-cancel-btn').addEventListener('click', function () {
+        window.location.reload();
+    });
+
+    document.getElementById('mv-continue-btn').addEventListener('click', function () {
+        var continueBtn = document.getElementById('mv-continue-btn');
+        var cancelBtn = document.getElementById('mv-cancel-btn');
+        continueBtn.disabled = true;
+        cancelBtn.disabled = true;
+
+        // Remove preview section
+        previewDiv.remove();
+
+        // Switch to merge bottombar
+        document.getElementById('mv-preview-bar').style.display = 'none';
+        document.getElementById('mv-merge-bar').style.display = '';
+
+        if (options && options.autoCommit) {
+            document.getElementById('mv-commit-status').textContent = t('autoCommitEnabledHint');
+        }
+
+        statusEl.textContent = t('running');
+        setMergeCancelAvailable(true);
+
+        document.getElementById('mv-run-cancel-btn').addEventListener('click', function () {
+            if (mergeCleanupFinished || mergeFinalized) return;
+            showCancelOverlay();
+        });
+
+        document.getElementById('mv-back-btn').addEventListener('click', function () {
+            window.location.reload();
+        });
+
+        document.getElementById('mv-done-btn').addEventListener('click', async function () {
+            mergeFinalized = true;
+            document.getElementById('mv-done-btn').disabled = true;
+            document.getElementById('mv-commit-btn').disabled = true;
+            setMergeCancelAvailable(false);
+            await fetch('/api/done', { method: 'POST' }).catch(function () { });
+            document.getElementById('mv-commit-status').textContent = t('doneCloseTab');
+        });
+
+        document.getElementById('mv-commit-btn').addEventListener('click', function () {
+            document.getElementById('mv-overlay').style.display = 'flex';
+            document.getElementById('mv-commit-msg').focus();
+        });
+        document.getElementById('mv-overlay-cancel').addEventListener('click', function () {
+            document.getElementById('mv-overlay').style.display = 'none';
+        });
+        document.getElementById('mv-cancel-overlay-dismiss').addEventListener('click', hideCancelOverlay);
+        document.getElementById('mv-cancel-overlay-confirm').addEventListener('click', async function () {
+            hideCancelOverlay();
+            setMergeCancelAvailable(false);
+            document.getElementById('mv-commit-btn').disabled = true;
+            document.getElementById('mv-done-btn').disabled = true;
+            statusEl.style.color = '#9a5c00';
+            statusEl.textContent = t('canceling');
+            document.getElementById('mv-commit-status').textContent = '';
+            await cancelMergeRun(statusEl, sectionController, showBackButton);
+        });
+        document.getElementById('mv-overlay-ok').addEventListener('click', async function () {
+            var msg = (document.getElementById('mv-commit-msg').value || '').trim();
+            if (!msg) return;
+            var okBtn = document.getElementById('mv-overlay-ok');
+            okBtn.disabled = true; okBtn.textContent = t('committing');
+            try {
+                var r2 = await fetch('/api/commit', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message: msg }),
+                });
+                var d2 = await r2.json();
+                document.getElementById('mv-overlay').style.display = 'none';
+                var st = document.getElementById('mv-commit-status');
+                if (d2.ok) {
+                    mergeFinalized = true;
+                    st.style.color = '#107c10';
+                    st.textContent = t('committedCloseTab');
+                    document.getElementById('mv-commit-btn').disabled = true;
+                    document.getElementById('mv-done-btn').disabled = true;
+                    setMergeCancelAvailable(false);
+                } else {
+                    st.style.color = '#c42b1c';
+                    st.textContent = t('commitFailed', { err: htmlEsc(d2.error || 'unknown') });
+                    okBtn.disabled = false; okBtn.textContent = t('commit');
+                }
+            } catch (err) {
+                okBtn.disabled = false; okBtn.textContent = t('commit');
+            }
+        });
+
+        runMerge(revisions, options || {}, statusEl, sectionController);
+    }); // end mv-continue-btn click
+}
+
+async function runMerge(revisions, options, statusEl, sectionController) {
+    var sectionsEl = document.getElementById('mv-sections');
     try {
+        activeMergeAbortController = new AbortController();
         var res = await fetch('/api/run-merge', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ revisions, runOptions: options || {} }),
+            signal: activeMergeAbortController.signal,
         });
-        if (!res.ok || !res.body) {
-            throw new Error(t('failedToStartMerge', { code: res.status }));
-        }
-        var reader = res.body.getReader();
-        var decoder = new TextDecoder();
-        var buf = '';
-        while (true) {
-            var chunk = await reader.read();
-            if (chunk.done) break;
-            buf += decoder.decode(chunk.value, { stream: true });
-            var lines = buf.split('\n');
-            buf = lines.pop();
-            for (var i = 0; i < lines.length; i++) {
-                var line = lines[i];
-                if (!line.startsWith('data: ')) continue;
-                var payload = line.slice(6);
-                if (payload === '[DONE]') continue;
-                try {
-                    var evt = JSON.parse(payload);
+        await consumeEventStream(res, function (evt) {
                     if (evt.type === 'log') {
-                        appendLog(evt.text);
+                        sectionController.appendLog(evt.text);
                     } else if (evt.type === 'section-start') {
-                        startSection(evt.title, evt.kind);
+                        sectionController.startSection(evt.title, evt.kind);
                     } else if (evt.type === 'section-end') {
-                        finalizeSection(evt.ok === false ? false : null);
+                        sectionController.finalizeSection(evt.ok === false ? false : null);
                     } else if (evt.type === 'done') {
-                        finalizeSection(null);
+                        mergeRunFinished = true;
+                        sectionController.finalizeSection(null);
                         // Always use the full merge message generated by backend pipeline
                         // so manual commit submits exactly the same content.
                         if (typeof evt.mergeMessage === 'string' && evt.mergeMessage.trim()) {
@@ -1421,14 +1555,51 @@ async function runMerge(revisions, options) {
                         } else {
                             document.getElementById('mv-commit-btn').disabled = true;
                         }
+                        setMergeCancelAvailable(!(evt.autoCommitAttempted && evt.autoCommitOk));
                         var db = document.getElementById('mv-done-btn');
                         db.disabled = false; db.style.opacity = '1';
                     }
-                } catch (_) { }
-            }
-        }
+        });
     } catch (err) {
+        if (err && err.name === 'AbortError') return;
         if (statusEl) { statusEl.style.color = '#c42b1c'; statusEl.textContent = t('errorPrefix', { msg: (err.message || String(err)) }); }
+        setMergeCancelAvailable(false);
+    }
+}
+
+async function cancelMergeRun(statusEl, sectionController, onBackReady) {
+    mergeCleanupFinished = false;
+    if (activeMergeAbortController) {
+        activeMergeAbortController.abort();
+        activeMergeAbortController = null;
+    }
+
+    try {
+        var res = await fetch('/api/cancel-merge', { method: 'POST' });
+        await consumeEventStream(res, function (evt) {
+            if (evt.type === 'log') {
+                sectionController.appendLog(evt.text);
+            } else if (evt.type === 'section-start') {
+                sectionController.startSection(evt.title, evt.kind);
+            } else if (evt.type === 'section-end') {
+                sectionController.finalizeSection(evt.ok === false ? false : null);
+            } else if (evt.type === 'cleanup-done') {
+                mergeCleanupFinished = true;
+                setMergeCancelAvailable(false);
+                onBackReady();
+                if (evt.ok) {
+                    statusEl.style.color = '#107c10';
+                    statusEl.textContent = t('mergeCanceledClean');
+                } else {
+                    statusEl.style.color = '#c42b1c';
+                    statusEl.textContent = t('mergeCanceledDirty');
+                }
+            }
+        });
+    } catch (err) {
+        statusEl.style.color = '#c42b1c';
+        statusEl.textContent = t('errorPrefix', { msg: (err.message || String(err)) });
+        onBackReady();
     }
 }
 

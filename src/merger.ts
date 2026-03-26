@@ -1,15 +1,9 @@
-import { Logger } from './logger';
+import { ILogger } from './logger';
 import { svnMerge, svnResolve, svnRevert, svnStatusAfterMerge } from './svn';
 import {
     ConflictInfo, MergeOptions, MergeSummary, RevertedInfo, RevisionMergeResult
 } from './types';
-import { formatConflictLine, isIgnored, relPath } from './utils';
-
-/** ANSI color helpers (console only) */
-const YELLOW = (s: string) => `\x1b[33m${s}\x1b[0m`;
-const RED = (s: string) => `\x1b[31m${s}\x1b[0m`;
-const GREEN = (s: string) => `\x1b[32m${s}\x1b[0m`;
-const GRAY = (s: string) => `\x1b[90m${s}\x1b[0m`;
+import { formatConflictLine, isIgnored, relPath, term } from './utils';
 
 /**
  * Merge a single revision and auto-resolve conflicts.
@@ -19,7 +13,7 @@ function mergeRevision(
   revision: number,
   fromUrl: string,
   workspace: string,
-  logger: Logger,
+  logger: ILogger,
   ignorePaths: string[],
 ): RevisionMergeResult {
   logger.log(`\n${'─'.repeat(60)}`);
@@ -100,7 +94,7 @@ function mergeRevision(
  * Run the full merge for all revisions specified in options.
  * Returns a MergeSummary.
  */
-export function run(options: MergeOptions, logger: Logger): MergeSummary {
+export function run(options: MergeOptions, logger: ILogger): MergeSummary {
   const { workspace, fromUrl, revisions, ignorePaths = [], verbose = false } = options;
   const results: RevisionMergeResult[] = [];
   const total = revisions.length;
@@ -123,7 +117,7 @@ export function run(options: MergeOptions, logger: Logger): MergeSummary {
 
     // Overwrite progress line with colored result; then print conflicts below
     if (!result.success) {
-      process.stdout.write(`\x1b[1A\x1b[2K${RED(label + '  FAILED')}\n`);
+      process.stdout.write(`${term.rewritePreviousLine(term.red(label + '  FAILED'))}\n`);
     } else if (result.conflicts.length > 0 || result.reverted.length > 0) {
       const activeConflicts = result.conflicts.filter((c) => !c.ignored);
       const ignoredConflicts = result.conflicts.filter((c) => c.ignored);
@@ -132,25 +126,25 @@ export function run(options: MergeOptions, logger: Logger): MergeSummary {
       if (activeConflicts.length > 0) parts.push(`${activeConflicts.length} conflict(s)`);
       if (ignoredCount > 0) parts.push(`${ignoredCount} ignored`);
       const hasTreeConflict = activeConflicts.some((c) => c.type === 'tree');
-      const labelColor = hasTreeConflict ? RED : YELLOW;
-      process.stdout.write(`\x1b[1A\x1b[2K${labelColor(label + `  (${parts.join(', ')})`)}\n`);
+      const labelColor = hasTreeConflict ? term.red : term.yellow;
+      process.stdout.write(`${term.rewritePreviousLine(labelColor(label + `  (${parts.join(', ')})`))}\n`);
       for (const c of activeConflicts) {
         const rel = relPath(c.path, workspace);
         const line = formatConflictLine(c.type, c.isDirectory, rel, c.resolution);
-        process.stdout.write((c.type === 'tree' ? RED : YELLOW)(`  ${line}\n`));
+        process.stdout.write((c.type === 'tree' ? term.red : term.yellow)(`  ${line}\n`));
       }
       for (const c of ignoredConflicts) {
         const rel = relPath(c.path, workspace);
         const line = formatConflictLine(c.type, c.isDirectory, rel, 'ignored');
-        if (verbose) process.stdout.write(GRAY(`  ${line}\n`));
+        if (verbose) process.stdout.write(term.gray(`  ${line}\n`));
       }
       for (const r of result.reverted) {
         const rel = relPath(r.path, workspace);
         const kindTag = r.isDirectory ? '[D]' : '[F]';
-        if (verbose) process.stdout.write(GRAY(`  [NONE    ]${kindTag}  ${rel}  (ignored)\n`));
+        if (verbose) process.stdout.write(term.gray(`  [NONE    ]${kindTag}  ${rel}  (ignored)\n`));
       }
     } else {
-      process.stdout.write(`\x1b[1A\x1b[2K${GREEN(label + '  ✓')}\n`);
+      process.stdout.write(`${term.rewritePreviousLine(term.green(label + '  ✓'))}\n`);
     }
   }
 

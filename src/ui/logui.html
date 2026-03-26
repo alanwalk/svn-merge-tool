@@ -134,8 +134,10 @@ window.onerror = function(msg, src, line) {
       <button id="mv-continue-btn" class="mv-btn-primary">Continue</button>
     </div>
     <div class="mv-bottombar" id="mv-merge-bar" style="display:none">
+      <button id="mv-run-cancel-btn" class="mv-btn-secondary">Cancel</button>
       <button id="mv-commit-btn" class="mv-btn-primary" disabled>Commit</button>
       <button id="mv-done-btn" class="mv-btn-secondary" disabled>Done (no commit)</button>
+      <button id="mv-back-btn" class="mv-btn-secondary" style="display:none">Back</button>
       <span id="mv-commit-status" class="mv-commit-status"></span>
     </div>
   </div>
@@ -147,6 +149,17 @@ window.onerror = function(msg, src, line) {
       <div class="mv-overlay-actions">
         <button id="mv-overlay-cancel" class="mv-btn-secondary">Cancel</button>
         <button id="mv-overlay-ok" class="mv-btn-primary">Commit</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="mv-cancel-overlay" class="mv-overlay" style="display:none">
+    <div class="mv-overlay-card mv-overlay-card-sm">
+      <div class="mv-overlay-title" id="mv-cancel-overlay-title">Confirm Cancel Merge</div>
+      <div class="mv-overlay-text" id="mv-cancel-overlay-text">Are you sure you want to cancel the current merge?</div>
+      <div class="mv-overlay-actions">
+        <button id="mv-cancel-overlay-dismiss" class="mv-btn-secondary">Cancel</button>
+        <button id="mv-cancel-overlay-confirm" class="mv-btn-primary">Confirm</button>
       </div>
     </div>
   </div>

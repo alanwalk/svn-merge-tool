@@ -18,9 +18,10 @@ import {
 } from './svn';
 import { LogEntry, MergeSummary } from './types';
 import { checkForUpdate, loadOrCreateRc } from './updater';
-import { compressRevisions } from './utils';
+import { compressRevisions, getPackageVersion, term } from './utils';
 
 const PAGE_SIZE = 100;
+const APP_VERSION = getPackageVersion();
 
 interface UiRunOptions {
   lang: 'zh-CN' | 'en';
@@ -184,22 +185,28 @@ if (!isMainThread) {
 
   (process.stdout as NodeJS.WriteStream & { write: (...a: unknown[]) => boolean }).write = (s: unknown) => {
     if (typeof s === 'string') {
-      const clean = s.replace(/\x1b\[[0-9;]*[A-Za-z]/g, '').trimEnd();
+      const clean = term.stripAnsi(s).trimEnd();
       if (clean) postLog(clean);
     }
     return true;
   };
 
+  let prepSectionOpen = false;
   try {
     if (wd.revisions.length > 0 && wd.workspace) {
+      sseLogger.sectionStart(tr(wd.runOptions.lang, 'workerPrepareMergeTitle'), 'info');
+      prepSectionOpen = true;
+      sseLogger.log(tr(wd.runOptions.lang, 'workerPrepareMergeCheckingWorkspace'));
+
       // Dirty check first, before creating output files under workspace
       const dirtyLines = svnStatusDirty(wd.workspace);
       if (dirtyLines.length > 0) {
-        sseLogger.log(tr(wd.runOptions.lang, `ERROR: Working copy has ${dirtyLines.length} uncommitted change(s):`, `错误：工作副本存在 ${dirtyLines.length} 项未提交变更：`));
+        sseLogger.log(tr(wd.runOptions.lang, 'workerDirtyError', { count: dirtyLines.length }));
         for (const dl of dirtyLines) sseLogger.log(`  ${dl}`);
-        throw new Error(tr(wd.runOptions.lang, 'SVN repository must have no modifications or unversioned files. Please clean up and try again.', 'SVN 工作副本必须无修改且无未入库文件。请先清理后重试。'));
+        throw new Error(tr(wd.runOptions.lang, 'workerCleanRetryError'));
       }
 
+      sseLogger.log(tr(wd.runOptions.lang, 'workerPrepareMergeCreateLog'));
       const outputDir = wd.runOptions.outputDir && wd.runOptions.outputDir.trim()
         ? wd.runOptions.outputDir.trim()
         : path.join(wd.workspace ?? process.cwd(), '.svnmerge');
@@ -208,11 +215,14 @@ if (!isMainThread) {
 
       // Pre-merge info
       sseLogger.log('\u2500'.repeat(60));
-      sseLogger.log(tr(wd.runOptions.lang, `Workspace: ${wd.workspace}`, `工作目录: ${wd.workspace}`));
-      sseLogger.log(tr(wd.runOptions.lang, `From: ${wd.fromUrl}`, `来源: ${wd.fromUrl}`));
-      sseLogger.log(tr(wd.runOptions.lang, `Revisions: ${compressRevisions(wd.revisions)}`, `修订: ${compressRevisions(wd.revisions)}`));
+      sseLogger.log(tr(wd.runOptions.lang, 'workerWorkspace', { workspace: wd.workspace }));
+      sseLogger.log(tr(wd.runOptions.lang, 'workerFrom', { fromUrl: wd.fromUrl }));
+      sseLogger.log(tr(wd.runOptions.lang, 'workerRevisions', { revisions: compressRevisions(wd.revisions) }));
       sseLogger.log(`auto-commit=${wd.runOptions.autoCommit}  verbose=${wd.runOptions.verbose}`);
-      sseLogger.log(tr(wd.runOptions.lang, 'Working copy is clean.', '工作副本干净。'));
+      sseLogger.log(tr(wd.runOptions.lang, 'workerWorkingCopyClean'));
+      sseLogger.log(tr(wd.runOptions.lang, 'workerPrepareMergeReady'));
+      sseLogger.sectionEnd(true);
+      prepSectionOpen = false;
 
       const pipelineResult = runMergePipeline(
         {
@@ -237,7 +247,11 @@ if (!isMainThread) {
       autoCommitError = pipelineResult.autoCommitError;
     }
   } catch (e) {
-    postLog(tr(wd.runOptions.lang, `ERROR: ${(e as Error).message}`, `错误：${(e as Error).message}`));
+    if (prepSectionOpen) {
+      sseLogger.sectionEnd(false);
+      prepSectionOpen = false;
+    }
+    postLog(tr(wd.runOptions.lang, 'workerGenericError', { error: (e as Error).message }));
     summary = { total: 0, succeeded: 0, withConflicts: 0, failed: 0, results: [] };
   } finally {
     if (fileLogger) fileLogger.close();
@@ -507,6 +521,35 @@ export function openLogUI(
   let selectedRevisions: number[] = [];
 
   return new Promise((resolve) => {
+    let activeMergeWorker: Worker | null = null;
+    let mergeStreamResponse: http.ServerResponse | null = null;
+    let mergeCancellationInProgress = false;
+
+    function resumeHeartbeat(): void {
+      lastPing = Date.now();
+      if (!heartbeatTimer) {
+        heartbeatTimer = setInterval(heartbeatTick, 3000);
+      }
+    }
+
+    function stopHeartbeat(): void {
+      if (heartbeatTimer) {
+        clearInterval(heartbeatTimer);
+        heartbeatTimer = null;
+      }
+    }
+
+    function finishMergeStream(): void {
+      if (mergeStreamResponse && !mergeStreamResponse.writableEnded) {
+        mergeStreamResponse.write('data: [DONE]\n\n');
+        mergeStreamResponse.end();
+      }
+      mergeStreamResponse = null;
+      activeMergeWorker = null;
+      mergeCancellationInProgress = false;
+      resumeHeartbeat();
+    }
+
     const server = http.createServer((req, res) => {
       const url = req.url ?? '/';
       const method = req.method ?? 'GET';
@@ -592,8 +635,7 @@ export function openLogUI(
       // ── POST /api/run-merge ──────────────────────────────────────────────────
       if (method === 'POST' && url === '/api/run-merge') {
         readBody(req).then((body) => {
-          clearInterval(heartbeatTimer!);
-          heartbeatTimer = null;
+          stopHeartbeat();
           let revisions: number[] = [];
           let runOptions: UiRunOptions = state.runOptions;
           try {
@@ -611,26 +653,114 @@ export function openLogUI(
           });
           const sendEvent = (data: unknown) => res.write(`data: ${JSON.stringify(data)}\n\n`);
 
+          mergeStreamResponse = res;
           const worker = new Worker(__filename, {
             execArgv: ['-r', 'ts-node/register'],
             workerData: { fromUrl, workspace, revisions, runOptions },
           });
+          activeMergeWorker = worker;
+          mergeCancellationInProgress = false;
+
           worker.on('message', (msg) => { sendEvent(msg); });
           worker.on('error', (e) => {
-            sendEvent({ type: 'log', text: `Worker error: ${e.message}` });
-            sendEvent({ type: 'done', summary: { total: 0, succeeded: 0, withConflicts: 0, failed: 0, results: [] }, hasWorkspace: !!workspace });
-            res.write('data: [DONE]\n\n');
-            res.end();
-            lastPing = Date.now();
-            heartbeatTimer = setInterval(heartbeatTick, 3000);
+            if (!mergeCancellationInProgress) {
+              sendEvent({ type: 'log', text: `Worker error: ${e.message}` });
+              sendEvent({ type: 'done', summary: { total: 0, succeeded: 0, withConflicts: 0, failed: 0, results: [] }, hasWorkspace: !!workspace });
+            }
+            finishMergeStream();
           });
           worker.on('exit', () => {
-            res.write('data: [DONE]\n\n');
-            res.end();
-            lastPing = Date.now();
-            heartbeatTimer = setInterval(heartbeatTick, 3000);
+            finishMergeStream();
           });
         }).catch((e) => { try { res.end(); } catch { /**/ } console.error('run-merge:', (e as Error).message); });
+        return;
+      }
+
+      // ── POST /api/cancel-merge ───────────────────────────────────────────────
+      if (method === 'POST' && url === '/api/cancel-merge') {
+        stopHeartbeat();
+
+        res.writeHead(200, {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+          'Transfer-Encoding': 'chunked',
+        });
+        const sendEvent = (data: unknown) => res.write(`data: ${JSON.stringify(data)}\n\n`);
+        const finishCancelStream = () => {
+          if (!res.writableEnded) {
+            res.write('data: [DONE]\n\n');
+            res.end();
+          }
+          resumeHeartbeat();
+        };
+
+        Promise.resolve().then(async () => {
+          try {
+            sendEvent({ type: 'section-start', title: tr(state.runOptions.lang, 'workerCancelMergeTitle'), kind: 'info' });
+            if (activeMergeWorker) {
+              mergeCancellationInProgress = true;
+              sendEvent({ type: 'log', text: tr(state.runOptions.lang, 'workerCancelMergeRequested') });
+              const worker = activeMergeWorker;
+              activeMergeWorker = null;
+              if (mergeStreamResponse && !mergeStreamResponse.writableEnded) {
+                mergeStreamResponse.end();
+              }
+              mergeStreamResponse = null;
+              await worker.terminate();
+              sendEvent({ type: 'log', text: tr(state.runOptions.lang, 'workerCancelMergeTerminated') });
+            } else {
+              sendEvent({ type: 'log', text: tr(state.runOptions.lang, 'workerCancelMergeNoActiveTask') });
+            }
+            sendEvent({ type: 'section-end', ok: true });
+
+            if (!workspace) {
+              throw new Error('No workspace configured');
+            }
+
+            sendEvent({ type: 'section-start', title: tr(state.runOptions.lang, 'workerCleanupWorkspaceTitle'), kind: 'info' });
+            sendEvent({ type: 'log', text: tr(state.runOptions.lang, 'workerCleanupWorkspaceStarting') });
+            const result = svnCleanWorkspace(workspace);
+            sendEvent({
+              type: 'log',
+              text: tr(state.runOptions.lang, 'workerCleanupWorkspaceResult', {
+                reverted: result.reverted,
+                removed: result.removed,
+              }),
+            });
+            if (result.failed.length > 0) {
+              sendEvent({ type: 'log', text: tr(state.runOptions.lang, 'workerCleanupWorkspaceFailed', { count: result.failed.length }) });
+              for (const item of result.failed) {
+                sendEvent({ type: 'log', text: `  ${item}` });
+              }
+              sendEvent({ type: 'section-end', ok: false });
+              sendEvent({ type: 'cleanup-done', ok: false });
+              finishCancelStream();
+              return;
+            }
+
+            const remainingDirty = svnStatusDirty(workspace);
+            if (remainingDirty.length > 0) {
+              sendEvent({ type: 'log', text: tr(state.runOptions.lang, 'workerCleanupWorkspaceStillDirty', { count: remainingDirty.length }) });
+              for (const item of remainingDirty) {
+                sendEvent({ type: 'log', text: `  ${item}` });
+              }
+              sendEvent({ type: 'section-end', ok: false });
+              sendEvent({ type: 'cleanup-done', ok: false });
+              finishCancelStream();
+              return;
+            }
+
+            sendEvent({ type: 'log', text: tr(state.runOptions.lang, 'workerCleanupWorkspaceDone') });
+            sendEvent({ type: 'section-end', ok: true });
+            sendEvent({ type: 'cleanup-done', ok: true });
+          } catch (e) {
+            sendEvent({ type: 'log', text: tr(state.runOptions.lang, 'workerCleanupWorkspaceError', { error: (e as Error).message }) });
+            sendEvent({ type: 'cleanup-done', ok: false });
+          } finally {
+            mergeCancellationInProgress = false;
+            finishCancelStream();
+          }
+        }).catch(() => finishCancelStream());
         return;
       }
 
@@ -653,7 +783,7 @@ export function openLogUI(
 
       // ── POST /api/done ────────────────────────────────────────────────────────
       if (method === 'POST' && url === '/api/done') {
-        clearInterval(heartbeatTimer!);
+        stopHeartbeat();
         sendJson(res, { ok: true });
         setTimeout(() => { server.close(); resolve(selectedRevisions); }, 200);
         return;
@@ -669,8 +799,7 @@ export function openLogUI(
 
       // ── POST /api/cancel ──────────────────────────────────────────────────────
       if (method === 'POST' && url === '/api/cancel') {
-        clearInterval(heartbeatTimer!);
-        heartbeatTimer = null;
+        stopHeartbeat();
         sendJson(res, { ok: true });
         setTimeout(() => { server.close(); resolve(null); }, 200);
         return;
@@ -691,8 +820,7 @@ export function openLogUI(
     const HEARTBEAT_TIMEOUT = 10_000; // 10s without ping = browser closed
     function heartbeatTick() {
       if (Date.now() - lastPing > HEARTBEAT_TIMEOUT) {
-        clearInterval(heartbeatTimer!);
-        heartbeatTimer = null;
+        stopHeartbeat();
         server.close();
         resolve(null);
       }
@@ -733,21 +861,18 @@ export function openLogUI(
 
 // ─── ui subcommand entry point ────────────────────────────────────────────────
 export async function uiCommand(args: string[]): Promise<void> {
-  const RED = (s: string) => `\x1b[31m${s}\x1b[0m`;
-  const YELLOW = (s: string) => `\x1b[33m${s}\x1b[0m`;
-  const CYAN = (s: string) => `\x1b[36m${s}\x1b[0m`;
   const { lang, fallbackWarning } = resolveConsoleLanguage();
-  if (fallbackWarning) console.log(YELLOW(fallbackWarning));
+  if (fallbackWarning) console.log(term.yellow(fallbackWarning));
 
   function runTimedStep<T>(label: string, fn: () => T): T {
     const start = Date.now();
-    console.log(CYAN(tr(lang, `[Startup] ${label}...`, `[启动] ${label}...`)));
+    console.log(term.cyan(tr(lang, 'startupStepRunning', { label })));
     try {
       const result = fn();
-      console.log(CYAN(tr(lang, `[Startup] ${label} done (${Date.now() - start} ms)`, `[启动] ${label} 完成（${Date.now() - start} ms）`)));
+      console.log(term.cyan(tr(lang, 'startupStepDone', { label, elapsedMs: Date.now() - start })));
       return result;
     } catch (e) {
-      console.log(CYAN(tr(lang, `[Startup] ${label} failed (${Date.now() - start} ms)`, `[启动] ${label} 失败（${Date.now() - start} ms）`)));
+      console.log(term.cyan(tr(lang, 'startupStepFailed', { label, elapsedMs: Date.now() - start })));
       throw e;
     }
   }
@@ -781,41 +906,13 @@ export async function uiCommand(args: string[]): Promise<void> {
     if (a === '--copy-to-clipboard') { cliCopyToClipboard = true; continue; }
     if (a === '--no-copy-to-clipboard') { cliCopyToClipboard = false; continue; }
     if (a === '--help' || a === '-h') {
-      console.log(tr(lang, `Usage: svn-merge-tool ui [options]
-
-Options:
-  -f, --from <url>          Source branch URL (required unless found in config)
-  -w, --workspace <path>    SVN working copy (required for actual merge)
-  -c, --config <path>       YAML config file
-  -r, --revisions <list>    Revisions/ranges, e.g. 1001,1002-1005
-  -i, --ignore <paths>      Comma-separated paths to ignore
-  -o, --output <path>       Output directory for log file
-  -V, --verbose             Show ignored/reverted details
-  -C, --commit              Auto-commit after successful merge
-      --copy-to-clipboard   Force enable merge-message clipboard copy
-      --no-copy-to-clipboard Force disable merge-message clipboard copy
-  -h, --help                Show this help
-`, `用法: svn-merge-tool ui [选项]
-
-选项:
-  -f, --from <url>          来源分支 URL（若配置文件未提供则必填）
-  -w, --workspace <path>    SVN 工作副本路径（执行合并时必填）
-  -c, --config <path>       YAML 配置文件
-  -r, --revisions <list>    修订或范围，例如 1001,1002-1005
-  -i, --ignore <paths>      逗号分隔的忽略路径
-  -o, --output <path>       日志输出目录
-  -V, --verbose             显示 ignored/reverted 详情
-  -C, --commit              合并成功后自动提交
-      --copy-to-clipboard   强制开启复制合并消息到剪贴板
-      --no-copy-to-clipboard 强制关闭复制合并消息到剪贴板
-  -h, --help                显示帮助
-`));
+      console.log(tr(lang, 'uiUsage'));
       return;
     }
 
     if (a.startsWith('-')) {
-      console.error(RED(`Error: unknown option ${a}`));
-      console.error(tr(lang, 'Use --help to see supported options.', '使用 --help 查看支持的选项。'));
+      console.error(term.red(`Error: unknown option ${a}`));
+      console.error(tr(lang, 'unknownOptionHelp'));
       process.exit(1);
     }
   }
@@ -842,22 +939,22 @@ Options:
         configVerbose = !!cfg.verbose;
         configCommit = !!cfg.commit;
       } catch (e) {
-        console.error(RED(`Config error: ${(e as Error).message}`));
+        console.error(term.red(`Config error: ${(e as Error).message}`));
         process.exit(1);
       }
     }
   }
 
   if (!fromUrl) {
-    console.error(RED(tr(lang, 'Error: --from <url> is required (or set via config file).', '错误：必须提供 --from <url>（或在配置文件中设置）。')));
-    console.error(tr(lang, 'Usage: svn-merge-tool ui -f <branch-url> [-w <workspace>]', '用法: svn-merge-tool ui -f <branch-url> [-w <workspace>]'));
+    console.error(term.red(tr(lang, 'fromRequired')));
+    console.error(tr(lang, 'uiUsageShort'));
     process.exit(1);
   }
 
   const resolvedWorkspace = workspace ? path.resolve(workspace) : null;
 
-  const rcConfig = runTimedStep(tr(lang, 'Load user config', '加载用户配置'), () => loadOrCreateRc());
-  runTimedStep(tr(lang, 'Check for updates', '检查更新'), () => checkForUpdate('1.0.6', rcConfig, lang));
+  const rcConfig = runTimedStep(tr(lang, 'loadUserConfig'), () => loadOrCreateRc());
+  runTimedStep(tr(lang, 'checkForUpdates'), () => checkForUpdate(APP_VERSION, rcConfig, lang));
 
   const cliIgnorePaths = cliIgnoreArg
     ? cliIgnoreArg.split(',').map((s) => s.trim()).filter(Boolean)
@@ -868,7 +965,7 @@ Options:
     try {
       preselectedRevisions = parseRevisionsArg(cliRevisionsArg);
     } catch (e) {
-      console.error(RED(`Error: ${(e as Error).message}`));
+      console.error(term.red(`Error: ${(e as Error).message}`));
       process.exit(1);
     }
   }
@@ -883,44 +980,44 @@ Options:
       : path.join(resolvedWorkspace, '.svnmerge');
 
     // Preflight dirty check at command start
-    let dirtyLines = runTimedStep(tr(lang, 'Scan working copy status (svn status)', '扫描工作副本状态 (svn status)'), () => svnStatusDirty(resolvedWorkspace));
+    let dirtyLines = runTimedStep(tr(lang, 'scanWorkingCopyStatus'), () => svnStatusDirty(resolvedWorkspace));
     if (dirtyLines.length > 0) {
-      console.error(YELLOW(tr(lang, `Warning: SVN working copy has ${dirtyLines.length} uncommitted change(s):`, `警告：SVN 工作副本存在 ${dirtyLines.length} 项未提交变更：`)));
+      console.error(term.yellow(tr(lang, 'warningDirtyCount', { count: dirtyLines.length })));
       for (const line of dirtyLines) {
-        console.error(RED(`  ${line}`));
+        console.error(term.red(`  ${line}`));
       }
 
-      const autoClean = promptYN(YELLOW(tr(lang, 'Auto-clean workspace now? This will revert local changes and delete unversioned files. [y/N] ', '是否立即自动清理工作副本？将回滚本地改动并删除未入库文件。[y/N] ')));
+      const autoClean = promptYN(term.yellow(tr(lang, 'autoCleanPrompt')));
       if (!autoClean) {
-        console.error(RED(tr(lang, 'Aborted. Please clean the workspace and retry.', '已取消。请先清理工作副本后重试。')));
+        console.error(term.red(tr(lang, 'abortedCleanRetry')));
         process.exit(1);
       }
 
       try {
         const result = svnCleanWorkspace(resolvedWorkspace);
-        console.log(CYAN(tr(lang, `Workspace cleaned: reverted ${result.reverted}, removed ${result.removed}.`, `工作副本已清理：已回滚 ${result.reverted}，已删除 ${result.removed}。`)));
+        console.log(term.cyan(tr(lang, 'workspaceCleaned', { reverted: result.reverted, removed: result.removed })));
         if (result.failed.length > 0) {
-          console.error(RED(`Cleanup failed for ${result.failed.length} path(s):`));
+          console.error(term.red(tr(lang, 'cleanupFailedCount', { count: result.failed.length })));
           for (const item of result.failed) {
-            console.error(RED(`  ${item}`));
+            console.error(term.red(`  ${item}`));
           }
           process.exit(1);
         }
       } catch (e) {
-        console.error(RED(`Error during auto-clean: ${(e as Error).message}`));
+        console.error(term.red(tr(lang, 'autoCleanError', { error: (e as Error).message })));
         process.exit(1);
       }
 
-      dirtyLines = runTimedStep(tr(lang, 'Re-scan working copy status (svn status)', '重新扫描工作副本状态 (svn status)'), () => svnStatusDirty(resolvedWorkspace));
+      dirtyLines = runTimedStep(tr(lang, 'rescanWorkingCopyStatus'), () => svnStatusDirty(resolvedWorkspace));
       if (dirtyLines.length > 0) {
-        console.error(RED('Workspace is still dirty after auto-clean. Remaining paths:'));
+        console.error(term.red(tr(lang, 'workspaceStillDirty')));
         for (const line of dirtyLines) {
-          console.error(RED(`  ${line}`));
+          console.error(term.red(`  ${line}`));
         }
         process.exit(1);
       }
 
-      console.log(CYAN(tr(lang, 'Workspace is clean. Opening UI merge mode...', '工作副本已干净，正在打开 UI 合并模式...')));
+      console.log(term.cyan(tr(lang, 'workspaceCleanOpeningUi')));
     }
   }
 
@@ -934,33 +1031,29 @@ Options:
     preselectedRevisions,
   };
 
-  console.log(CYAN(tr(lang, 'SVN Merge UI', 'SVN 合并 UI')));
-  console.log(CYAN(`  from      : ${fromUrl}`));
-  if (resolvedWorkspace) console.log(CYAN(`  workspace : ${resolvedWorkspace}`));
-  if (!resolvedWorkspace) console.log(CYAN(tr(lang, '  workspace : (none, read-only mode)', '  workspace : （无，只读模式）')));
-  console.log(CYAN(`  commit    : ${runOptions.autoCommit}`));
+  console.log(term.cyan(tr(lang, 'svnMergeUiTitle')));
+  console.log(term.cyan(`  from      : ${fromUrl}`));
+  if (resolvedWorkspace) console.log(term.cyan(`  workspace : ${resolvedWorkspace}`));
+  if (!resolvedWorkspace) console.log(term.cyan(tr(lang, 'workspaceNoneReadOnly')));
+  console.log(term.cyan(`  commit    : ${runOptions.autoCommit}`));
   console.log('');
 
   const selected = await openLogUI(fromUrl, resolvedWorkspace, runOptions);
 
   if (selected === null) {
-    console.log(tr(lang, 'User canceled.', '用户已取消。'));
+    console.log(tr(lang, 'userCanceled'));
     process.exit(0);
   }
 
   if (selected.length === 0) {
-    console.log(tr(lang, 'No revisions selected.', '未选择修订。'));
+    console.log(tr(lang, 'noRevisionsSelected'));
     process.exit(0);
   }
 
   const sorted = [...selected].sort((a, b) => a - b);
-  console.log(CYAN(`\nUI finished for ${sorted.length} revision(s): ${sorted.map((r) => `r${r}`).join(', ')}`));
-  process.exit(0);
-}
-
-// Backward-compatible alias: `svn-merge-tool log` -> `svn-merge-tool ui`
-export async function logCommand(args: string[]): Promise<void> {
-  console.log('Notice: `svn-merge-tool log` is deprecated. Please use `svn-merge-tool ui`.');
-  await uiCommand(args);
+  console.log(term.cyan(tr(lang, 'uiFinishedRevisions', {
+    count: sorted.length,
+    revisions: sorted.map((r) => `r${r}`).join(', '),
+  })));
   process.exit(0);
 }

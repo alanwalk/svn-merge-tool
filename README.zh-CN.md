@@ -10,7 +10,6 @@
 - **文本 / 属性冲突** → 接受对方修改（`theirs-full`）
 - **树冲突** → 保留本地版本（`working`）
 - **忽略规则** — 匹配 `ignore-merge` 的路径始终丢弃（revert），即使没有产生冲突
-- `--dry-run` 模式 — 预览待合并的修订版本及其日志，不执行任何实际修改
 - `--commit` — 合并成功后自动执行 `svn commit`，以生成的 message.txt 内容作为提交日志
 - 控制台仅显示精简进度（带颜色），完整日志实时写入 `svnmerge-<时间戳>.log`
 - 提交信息（修订版本范围 + `svn log` 正文）追加到日志文件末尾
@@ -37,7 +36,7 @@ npm link
 ## 用法
 
 ```
-svn-merge-tool [选项]
+svnmerge [选项]
 
 选项:
   -c, --config <path>       YAML 配置文件路径
@@ -47,7 +46,6 @@ svn-merge-tool [选项]
   -o, --output <path>       输出文件目录（覆盖配置中的 output）
   -i, --ignore <paths>      逗号分隔的忽略路径（追加到配置的 ignore 列表）
   -V, --verbose             在控制台显示 ignored/reverted 文件详情
-  -d, --dry-run             列出待合并修订版本及日志，不执行合并
   -C, --commit              合并成功后自动执行 svn commit（使用生成的 message.txt）
   -v, --version             显示版本号
   -h, --help                显示帮助
@@ -57,29 +55,25 @@ svn-merge-tool [选项]
 
 ```bash
 # 自动向上查找 svnmerge.yaml
-svn-merge-tool -r 84597-84608,84610
-
-# 预览待合并修订版本，不执行合并
-svn-merge-tool -d
-svn-merge-tool -d -r 84597-84610
+svnmerge -r 84597-84608,84610
 
 # 合并后自动提交，使用生成的 message 文件作为日志
-svn-merge-tool -r 1001 -C
+svnmerge -r 1001 -C
 
 # 命令行传入忽略路径（追加到配置文件的 ignore 列表）
-svn-merge-tool -r 1001 -i src/thirdparty/generated,assets/auto
+svnmerge -r 1001 -i src/thirdparty/generated,assets/auto
 
 # 指定配置文件
-svn-merge-tool -c ./svn.yaml -r 84597-84608,84610
+svnmerge -c ./svn.yaml -r 84597-84608,84610
 
 # 全部通过命令行参数指定
-svn-merge-tool -w /path/to/copy -f http://svn.example.com/branches/feature -r 1001,1002
+svnmerge -w /path/to/copy -f http://svn.example.com/branches/feature -r 1001,1002
 
 # 覆盖配置文件中的 workspace
-svn-merge-tool -c ./svn.yaml -w /path/to/override -r 1001,1002,1003
+svnmerge -c ./svn.yaml -w /path/to/override -r 1001,1002,1003
 
 # 显示忽略/还原文件详情
-svn-merge-tool -V -r 1001,1002
+svnmerge -V -r 1001,1002
 ```
 
 ## 配置文件

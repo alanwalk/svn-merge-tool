@@ -5,6 +5,7 @@ import * as os from 'os';
 import * as path from 'path';
 
 import { tr } from './i18n';
+import { term } from './utils';
 
 const RC_PATH = path.join(os.homedir(), '.svnmergerc');
 
@@ -17,10 +18,6 @@ function getStateDir(): string {
 const STATE_PATH = path.join(getStateDir(), 'state.json');
 const PACKAGE_NAME = 'svn-merge-tool';
 const NPM_URL = `https://www.npmjs.com/package/${PACKAGE_NAME}`;
-
-const CYAN = (s: string) => `\x1b[36m${s}\x1b[0m`;
-const YELLOW = (s: string) => `\x1b[33m${s}\x1b[0m`;
-const GREEN = (s: string) => `\x1b[32m${s}\x1b[0m`;
 
 const DEFAULT_RC = `# svn-merge-tool user configuration
 # https://github.com/alanwalk/svn-merge-tool
@@ -139,12 +136,24 @@ function fetchLatestVersionSync(): string | null {
 // ─── Version comparison ───────────────────────────────────────────────────────
 
 function isNewer(current: string, latest: string): boolean {
-  const parse = (v: string) => v.replace(/^v/, '').split('.').map(Number);
-  const [ca, cb, cc] = parse(current);
-  const [la, lb, lc] = parse(latest);
-  if (la !== ca) return la > ca;
-  if (lb !== cb) return lb > cb;
-  return lc > cc;
+  const parse = (v: string): { major: number; minor: number; patch: number; prerelease: boolean } => {
+    const clean = v.trim().replace(/^v/, '');
+    const [core, prerelease] = clean.split('-', 2);
+    const [major, minor, patch] = core.split('.').map((part) => parseInt(part, 10));
+    return {
+      major: Number.isFinite(major) ? major : 0,
+      minor: Number.isFinite(minor) ? minor : 0,
+      patch: Number.isFinite(patch) ? patch : 0,
+      prerelease: !!prerelease,
+    };
+  };
+
+  const c = parse(current);
+  const l = parse(latest);
+  if (l.major !== c.major) return l.major > c.major;
+  if (l.minor !== c.minor) return l.minor > c.minor;
+  if (l.patch !== c.patch) return l.patch > c.patch;
+  return !l.prerelease && c.prerelease;
 }
 
 // ─── Sync stdin prompt ────────────────────────────────────────────────────────
@@ -187,20 +196,20 @@ export function checkForUpdate(currentVersion: string, rc?: RcConfig, lang: 'zh-
 
   if (!isNewer(currentVersion, latest)) return;
 
-  console.log(CYAN(tr(lang, `\nUpdate available: v${currentVersion} → v${latest}`, `\n发现新版本：v${currentVersion} → v${latest}`)));
-  console.log(CYAN(`  ${NPM_URL}\n`));
+  console.log(term.cyan(tr(lang, 'updateAvailable', { currentVersion, latestVersion: latest })));
+  console.log(term.cyan(`  ${NPM_URL}\n`));
 
-  if (promptYN(YELLOW(tr(lang, `Run "npm install -g ${PACKAGE_NAME}" now? [y/N] `, `是否现在执行 "npm install -g ${PACKAGE_NAME}"？[y/N] `)))) {
-    console.log(CYAN(tr(lang, `\nRunning: npm install -g ${PACKAGE_NAME} ...`, `\n正在执行：npm install -g ${PACKAGE_NAME} ...`)));
+  if (promptYN(term.yellow(tr(lang, 'runNpmInstallNow', { packageName: PACKAGE_NAME })))) {
+    console.log(term.cyan(tr(lang, 'runningNpmInstall', { packageName: PACKAGE_NAME })));
     const result = spawnSync('npm', ['install', '-g', PACKAGE_NAME], {
       stdio: 'inherit',
       shell: true,
     });
     if (result.status === 0) {
-      console.log(GREEN(tr(lang, '\nUpdate successful! Please restart the command.\n', '\n更新成功！请重新执行命令。\n')));
+      console.log(term.green(tr(lang, 'updateSuccessfulRestart')));
       process.exit(0);
     } else {
-      console.log(YELLOW(tr(lang, `\nUpdate failed. Please run manually:\n  npm install -g ${PACKAGE_NAME}\n`, `\n更新失败。请手动执行：\n  npm install -g ${PACKAGE_NAME}\n`)));
+      console.log(term.yellow(tr(lang, 'updateFailedRunManually', { packageName: PACKAGE_NAME })));
     }
   } else {
     console.log();

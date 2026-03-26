@@ -28,14 +28,13 @@ export function buildMessage(
     .map((r) => r.revision)
     .sort((a, b) => a - b);
 
-  const header = tr(
-    lang,
-    `Merged revision(s) ${compressRevisions(mergedRevisions)} from ${branch}:`,
-    `从 ${branch} 合并修订 ${compressRevisions(mergedRevisions)}：`
-  );
+  const header = tr(lang, 'mergedRevisionsHeader', {
+    revisions: compressRevisions(mergedRevisions),
+    branch,
+  });
   const lines: string[] = [header];
 
-  process.stdout.write(tr(lang, '  Fetching revision logs...\r', '  正在获取修订日志...\r'));
+  process.stdout.write(tr(lang, 'fetchingRevisionLogs'));
   const logMap = svnLogBatch(mergedRevisions, fromUrl);
   process.stdout.write(' '.repeat(40) + '\r');
 
@@ -44,7 +43,7 @@ export function buildMessage(
     if (body) {
       lines.push(body);
     } else {
-      lines.push(tr(lang, `(no log message for r${rev})`, `（r${rev} 无日志消息）`));
+      lines.push(tr(lang, 'noLogMessageForRevision', { revision: rev }));
     }
     lines.push(ENTRY_SEP);
   }

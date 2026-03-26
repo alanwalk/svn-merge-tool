@@ -6,7 +6,7 @@ import * as path from 'path';
  * Values that can be loaded from a YAML config file.
  * All fields are optional — CLI arguments always take precedence.
  *
- * Config file format (svn-merge-tool.yaml):
+ * Config file format (svnmerge.yaml):
  *
  *   workspace: /path/to/working-copy
  *   from: http://svn.example.com/branches/feature
@@ -113,7 +113,7 @@ export function loadConfig(configPath: string): ConfigFile {
 }
 
 /**
- * Walk up the directory tree from `startDir`, looking for `svn-merge-tool.yaml` or `.yml`.
+ * Walk up the directory tree from `startDir`, looking for `svnmerge.yaml` or `.yml`.
  * Returns the absolute path to the first match found, or undefined if none exists.
  */
 export function findDefaultConfig(startDir: string = process.cwd()): string | undefined {

@@ -71,12 +71,12 @@ export function runMergePipeline(
     const lang = opts.lang ?? 'en';
 
     // ── 1. SVN Update ──────────────────────────────────────────────────────────
-    logger.sectionStart(tr(lang, 'SVN Update', 'SVN 更新'), 'info');
+    logger.sectionStart(tr(lang, 'svnUpdateTitle'), 'info');
     svnUpdate(workspace, lang);
     logger.sectionEnd(true);
 
     // ── 2. Merge ───────────────────────────────────────────────────────────────
-    logger.sectionStart(tr(lang, `Merging ${revisions.length} revision(s)`, `正在合并 ${revisions.length} 个修订`), 'merge');
+    logger.sectionStart(tr(lang, 'mergingRevisionCount', { count: revisions.length }), 'merge');
     const summary = mergerRun(
         { fromUrl, workspace, revisions, ignorePaths, verbose, lang },
         logger,   // ILogger — structurally compatible with merger's requirement
@@ -84,7 +84,7 @@ export function runMergePipeline(
     logger.sectionEnd(summary.failed === 0);
 
     // ── 3. Summary ─────────────────────────────────────────────────────────────
-    logger.sectionStart(tr(lang, 'Summary', '汇总'), 'summary');
+    logger.sectionStart(tr(lang, 'summaryTitle'), 'summary');
     {
         const allReverted = summary.results.flatMap((r) => r.reverted ?? []);
         const uniqueReverted = [...new Map(allReverted.map((r) => [r.path, r])).values()];
@@ -98,7 +98,7 @@ export function runMergePipeline(
         // Failed revisions
         for (const result of summary.results) {
             if (!result.success) {
-                logger.log(tr(lang, `  r${result.revision}  FAILED  ${result.errorMessage ?? ''}`, `  r${result.revision}  失败  ${result.errorMessage ?? ''}`));
+                logger.log(tr(lang, 'revisionFailed', { revision: result.revision, error: result.errorMessage ?? '' }));
             }
         }
 
@@ -109,9 +109,9 @@ export function runMergePipeline(
         ) {
             const groups = groupSummaryByType(summary.results, workspace);
             const typeLabels: Record<string, string> = {
-                tree: tr(lang, 'Tree Conflicts', '树冲突'),
-                text: tr(lang, 'Text Conflicts', '文本冲突'),
-                property: tr(lang, 'Property Conflicts', '属性冲突'),
+                    tree: tr(lang, 'treeConflictsTitle'),
+                    text: tr(lang, 'textConflictsTitle'),
+                    property: tr(lang, 'propertyConflictsTitle'),
             };
 
             for (const [type, entries] of groups) {
@@ -121,7 +121,7 @@ export function runMergePipeline(
                 if (!verbose && activeEntries.length === 0) continue;
                 const countLabel =
                     verbose && ignoredEntries.length > 0
-                        ? tr(lang, `${activeEntries.length} + ${ignoredEntries.length} ignored`, `${activeEntries.length} + ${ignoredEntries.length} 已忽略`)
+                        ? tr(lang, 'ignoredCountLabel', { active: activeEntries.length, ignored: ignoredEntries.length })
                         : `${activeEntries.length}`;
                 logger.log(`  ${typeLabels[type]} (${countLabel}):`);
                 for (const e of activeEntries) {
@@ -135,14 +135,10 @@ export function runMergePipeline(
             }
 
             if (verbose && uniqueReverted.length > 0) {
-                logger.log(tr(lang, `  Reverted (${uniqueReverted.length} Ignored):`, `  已回退（${uniqueReverted.length} 个已忽略）：`));
+                logger.log(tr(lang, 'revertedIgnoredTitle', { count: uniqueReverted.length }));
                 for (const r of uniqueReverted) {
                     const rel = relPath(r.path, workspace);
-                    logger.log(tr(
-                        lang,
-                        `    ${r.isDirectory ? '[D]' : '[F]'}  ${rel}  (reverted)`,
-                        `    ${r.isDirectory ? '[D]' : '[F]'}  ${rel}  （已回退）`
-                    ));
+                    logger.log(tr(lang, 'revertedEntry', { kindTag: r.isDirectory ? '[D]' : '[F]', rel }));
                 }
             }
 
@@ -154,22 +150,18 @@ export function runMergePipeline(
             )].sort((a, b) => a.localeCompare(b));
 
             if (incomingTreePaths.length > 0) {
-                logger.log(tr(
-                    lang,
-                    `  Notice: ${incomingTreePaths.length} non-ignored tree conflict(s) accepted incoming changes from source branch (theirs-full).`,
-                    `  提示：${incomingTreePaths.length} 个非忽略树冲突已接受来源分支改动（theirs-full）。`
-                ));
+                logger.log(tr(lang, 'incomingTreeConflictsNotice', { count: incomingTreePaths.length }));
                 for (const rel of incomingTreePaths) {
-                    logger.log(tr(lang, `    [TREE][INCOMING]  ${rel}`, `    [树冲突][接受来源]  ${rel}`));
+                    logger.log(tr(lang, 'incomingTreeConflictEntry', { rel }));
                 }
             }
         }
 
         const parts = [
-            tr(lang, `Total: ${summary.total}`, `总计: ${summary.total}`),
-            tr(lang, `OK: ${summary.succeeded}`, `成功: ${summary.succeeded}`),
-            ...(summary.withConflicts > 0 ? [tr(lang, `Conflicts: ${summary.withConflicts}`, `冲突: ${summary.withConflicts}`)] : []),
-            ...(summary.failed > 0 ? [tr(lang, `Failed: ${summary.failed}`, `失败: ${summary.failed}`)] : []),
+            tr(lang, 'summaryTotal', { total: summary.total }),
+            tr(lang, 'summaryOk', { count: summary.succeeded }),
+            ...(summary.withConflicts > 0 ? [tr(lang, 'summaryConflicts', { count: summary.withConflicts })] : []),
+            ...(summary.failed > 0 ? [tr(lang, 'summaryFailed', { count: summary.failed })] : []),
         ];
         logger.log('');
         logger.log(parts.join('  '));
@@ -177,14 +169,14 @@ export function runMergePipeline(
     logger.sectionEnd(summary.failed === 0);
 
     // ── 4. Merge Message ───────────────────────────────────────────────────────
-    logger.sectionStart(tr(lang, 'Merge Message', '合并信息'), 'message');
+    logger.sectionStart(tr(lang, 'mergeMessageTitle'), 'message');
     const mergeMessage = buildMessage(summary, fromUrl, lang);
     logger.appendRaw('\n' + '='.repeat(72) + '\n');
     logger.appendRaw(mergeMessage);
     logger.appendRaw('='.repeat(72) + '\n');
     if (opts.copyToClipboard && mergeMessage.trim() && copyFn) {
         copyFn(mergeMessage);
-        logger.log(tr(lang, 'Merge message copied to clipboard.', '合并信息已复制到剪贴板。'));
+        logger.log(tr(lang, 'mergeMessageCopied'));
     }
     logger.sectionEnd(true);
 
@@ -195,7 +187,7 @@ export function runMergePipeline(
     let autoCommitError = '';
 
     if (autoCommit) {
-        logger.sectionStart(tr(lang, 'Auto-commit', '自动提交'), 'commit');
+        logger.sectionStart(tr(lang, 'autoCommitTitle'), 'commit');
         autoCommitAttempted = true;
         const hasActiveConflicts = summary.results.some((r) => r.conflicts.some((c) => !c.ignored));
 
@@ -206,33 +198,33 @@ export function runMergePipeline(
                     .filter((r) => !r.success)
                     .map((r) => `r${r.revision}`)
                     .join(', ');
-                reasons.push(tr(lang, `${summary.failed} revision(s) failed (${failedRevs})`, `${summary.failed} 个修订失败（${failedRevs}）`));
+                reasons.push(tr(lang, 'failedRevisionsReason', { count: summary.failed, revisions: failedRevs }));
             }
             if (hasActiveConflicts) {
                 const conflictRevs = summary.results
                     .filter((r) => r.conflicts.some((c) => !c.ignored))
                     .map((r) => `r${r.revision}`)
                     .join(', ');
-                reasons.push(tr(lang, `unresolved conflicts (${conflictRevs})`, `存在未解决冲突（${conflictRevs}）`));
+                reasons.push(tr(lang, 'unresolvedConflictsReason', { revisions: conflictRevs }));
             }
             autoCommitOk = false;
-            autoCommitError = tr(lang, `Auto-commit skipped: ${reasons.join(', ')}.`, `自动提交已跳过：${reasons.join(', ')}。`);
+            autoCommitError = tr(lang, 'autoCommitSkipped', { reasons: reasons.join(', ') });
             logger.log(autoCommitError);
         } else if (summary.succeeded === 0) {
             autoCommitOk = false;
-            autoCommitError = tr(lang, 'Auto-commit skipped: no revisions were successfully merged.', '自动提交已跳过：没有成功合并的修订。');
+            autoCommitError = tr(lang, 'autoCommitSkippedNoSuccess');
             logger.log(autoCommitError);
         } else {
             try {
                 autoCommitOutput = svnCommit(workspace, mergeMessage);
                 autoCommitOk = true;
-                logger.log(tr(lang, 'Auto-commit successful.', '自动提交成功。'));
+                logger.log(tr(lang, 'autoCommitSuccessful'));
                 if (autoCommitOutput.trim()) {
                     logger.appendRaw(autoCommitOutput + '\n');
                 }
             } catch (e) {
                 autoCommitOk = false;
-                autoCommitError = tr(lang, `Auto-commit failed: ${(e as Error).message}`, `自动提交失败：${(e as Error).message}`);
+                autoCommitError = tr(lang, 'autoCommitFailed', { error: (e as Error).message });
                 logger.log(autoCommitError);
             }
         }

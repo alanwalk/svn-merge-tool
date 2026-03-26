@@ -1,64 +1,69 @@
 import { spawnSync } from 'child_process';
 
-export type AppLang = 'zh-CN' | 'en';
+import { AppLang, I18N_MESSAGES, I18nMessages } from './i18n.config';
 
-const ENCODING_FALLBACK_WARNING =
-    'Detected non-UTF8 console encoding on Windows. To avoid garbled Chinese text, CLI output falls back to English. You can set SVN_MERGE_LANG=en explicitly.';
+type MessageArgs<K extends keyof I18nMessages> =
+  I18nMessages[K] extends (...args: infer A) => string ? A : [];
 
 function normalizeLang(input: string): AppLang {
-    const s = String(input || '').toLowerCase();
-    return s.indexOf('zh') === 0 ? 'zh-CN' : 'en';
+  const s = String(input || '').toLowerCase();
+  return s.indexOf('zh') === 0 ? 'zh-CN' : 'en';
 }
 
 function getSystemLocale(): string {
-    const envLocale = process.env['SVN_MERGE_LANG'] || process.env['LC_ALL'] || process.env['LC_MESSAGES'] || process.env['LANG'];
-    if (envLocale && envLocale.trim()) return envLocale;
+  const envLocale = process.env['SVN_MERGE_LANG'] || process.env['LC_ALL'] || process.env['LC_MESSAGES'] || process.env['LANG'];
+  if (envLocale && envLocale.trim()) return envLocale;
 
-    if (process.platform === 'win32') {
-        try {
-            const ps = spawnSync(
-                'powershell',
-                ['-NoProfile', '-Command', '[System.Globalization.CultureInfo]::CurrentUICulture.Name'],
-                { encoding: 'utf8', windowsHide: true, timeout: 3000 }
-            );
-            const uiCulture = `${ps.stdout || ''}`.trim();
-            if (uiCulture) return uiCulture;
-        } catch {
-            // ignore and continue fallback chain
-        }
-    }
-
+  if (process.platform === 'win32') {
     try {
-        return Intl.DateTimeFormat().resolvedOptions().locale || 'en';
+      const ps = spawnSync(
+        'powershell',
+        ['-NoProfile', '-Command', '[System.Globalization.CultureInfo]::CurrentUICulture.Name'],
+        { encoding: 'utf8', windowsHide: true, timeout: 3000 }
+      );
+      const uiCulture = `${ps.stdout || ''}`.trim();
+      if (uiCulture) return uiCulture;
     } catch {
-        return 'en';
+      // ignore and continue fallback chain
     }
+  }
+
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().locale || 'en';
+  } catch {
+    return 'en';
+  }
 }
 
 function isWindowsUtf8Console(): boolean {
-    if (process.platform !== 'win32') return true;
-    try {
-        const result = spawnSync('cmd', ['/c', 'chcp'], {
-            encoding: 'utf8',
-            windowsHide: true,
-        });
-        const output = `${result.stdout || ''} ${result.stderr || ''}`;
-        return /65001/.test(output);
-    } catch {
-        return false;
-    }
+  if (process.platform !== 'win32') return true;
+  try {
+    const result = spawnSync('cmd', ['/c', 'chcp'], {
+      encoding: 'utf8',
+      windowsHide: true,
+    });
+    const output = `${result.stdout || ''} ${result.stderr || ''}`;
+    return /65001/.test(output);
+  } catch {
+    return false;
+  }
 }
 
 export function resolveConsoleLanguage(): { lang: AppLang; fallbackWarning: string } {
-    const preferred = normalizeLang(getSystemLocale());
+  const preferred = normalizeLang(getSystemLocale());
 
-    if (preferred === 'zh-CN' && !isWindowsUtf8Console()) {
-        return { lang: 'en', fallbackWarning: ENCODING_FALLBACK_WARNING };
-    }
+  if (preferred === 'zh-CN' && !isWindowsUtf8Console()) {
+    return { lang: 'en', fallbackWarning: I18N_MESSAGES.en.encodingFallbackWarning };
+  }
 
-    return { lang: preferred, fallbackWarning: '' };
+  return { lang: preferred, fallbackWarning: '' };
 }
 
-export function tr(lang: AppLang, en: string, zhCN: string): string {
-    return lang === 'zh-CN' ? zhCN : en;
+export function tr<K extends keyof I18nMessages>(lang: AppLang, key: K, ...args: MessageArgs<K>): string {
+  const message = I18N_MESSAGES[lang][key];
+  return typeof message === 'function'
+    ? (message as unknown as (...fnArgs: MessageArgs<K>) => string)(...args)
+    : message;
 }
+
+export type { AppLang };

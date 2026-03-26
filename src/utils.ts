@@ -3,6 +3,62 @@ import * as path from 'path';
 
 import { ConflictType } from './types';
 
+let cachedVersion: string | null = null;
+const ANSI_RESET = '\x1b[0m';
+const ANSI_BOLD = '\x1b[1m';
+const ANSI_REWRITE_PREVIOUS_LINE = '\x1b[1A\x1b[2K';
+
+function paint(code: number, text: string): string {
+  return `\x1b[${code}m${text}${ANSI_RESET}`;
+}
+
+export function getPackageVersion(): string {
+  if (cachedVersion) return cachedVersion;
+
+  const packageJsonPath = path.resolve(__dirname, '..', 'package.json');
+  try {
+    const raw = fs.readFileSync(packageJsonPath, 'utf8');
+    const parsed = JSON.parse(raw) as { version?: unknown };
+    if (typeof parsed.version === 'string' && parsed.version.trim()) {
+      cachedVersion = parsed.version.trim();
+      return cachedVersion;
+    }
+  } catch {
+    // fall through to a safe fallback
+  }
+
+  cachedVersion = '0.0.0';
+  return cachedVersion;
+}
+
+export const term = {
+  red(text: string): string {
+    return paint(31, text);
+  },
+  yellow(text: string): string {
+    return paint(33, text);
+  },
+  green(text: string): string {
+    return paint(32, text);
+  },
+  cyan(text: string): string {
+    return paint(36, text);
+  },
+  gray(text: string): string {
+    return paint(90, text);
+  },
+  bold(text: string): string {
+    return `${ANSI_BOLD}${text}${ANSI_RESET}`;
+  },
+  rewritePreviousLine(text: string): string {
+    return `${ANSI_REWRITE_PREVIOUS_LINE}${text}`;
+  },
+  stripAnsi(text: string): string {
+    // eslint-disable-next-line no-control-regex
+    return text.replace(/\x1b\[[0-9;]*[A-Za-z]/g, '');
+  },
+};
+
 /**
  * Return a workspace-relative path, using forward slashes.
  * If the path is not under workspace, return the original absolute path.
@@ -42,11 +98,13 @@ function normPath(p: string): string {
  */
 export function isIgnored(absPath: string, workspace: string, ignorePaths: string[]): boolean {
   if (ignorePaths.length === 0) return false;
+  const abs = normPath(absPath);
   const rel = normPath(relPath(absPath, workspace));
   for (const pattern of ignorePaths) {
     const norm = normPath(pattern);
-    // Exact match or absPath is inside the ignored directory
-    if (rel === norm || rel.startsWith(norm + '/')) {
+    const target = path.isAbsolute(pattern) ? abs : rel;
+    // Exact match or path is inside the ignored directory
+    if (target === norm || target.startsWith(norm + '/')) {
       return true;
     }
   }

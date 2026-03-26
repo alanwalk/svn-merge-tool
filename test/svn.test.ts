@@ -142,6 +142,11 @@ describe('svnStatusAfterMerge', () => {
     assert.equal(modifications.length, 0);
   });
 
+  test('throws when svn status fails after merge', () => {
+    mockSvn({ status: { exitCode: 1, stdout: '', stderr: 'svn: E155037: previous operation has not finished' } }, WS);
+    assert.throws(() => svnStatusAfterMerge(WS), /svn status failed after merge/);
+  });
+
   test('detects text conflict (col0 = C)', () => {
     const p = path.join(WS, 'src', 'file.ts');
     mockSvn({ status: { exitCode: 0, stdout: textConflict(p) } }, WS);

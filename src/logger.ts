@@ -1,11 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-
-/** Strip ANSI escape codes for clean log file output */
-function stripAnsi(str: string): string {
-  // eslint-disable-next-line no-control-regex
-  return str.replace(/\x1b\[[0-9;]*m/g, '');
-}
+import { term } from './utils';
 
 /** Timestamp prefix: [YYYY-MM-DD HH:MM:SS] */
 function timestamp(): string {
@@ -36,7 +31,7 @@ export class Logger implements ILogger {
 
   /** Append a line to the log file immediately (ANSI codes are stripped). */
   log(message: string): void {
-    const clean = stripAnsi(message);
+    const clean = term.stripAnsi(message);
     let line: string;
     if (clean.trim() === '' || clean.startsWith('\u2500') || clean.startsWith('\u2550')) {
       line = clean + '\n';
