@@ -22,6 +22,7 @@ let activeMergeAbortController = null;
 let mergeRunFinished = false;
 let mergeCleanupFinished = false;
 let mergeFinalized = false;
+let currentUiMode = 'list';
 const RECENT_LOAD_PAGES_PER_REQUEST = 5;
 const MESSAGE_PREVIEW_MAX_CHARS = 42;
 let runOptions = {
@@ -36,6 +37,11 @@ const workspacePathForSummary = (function () {
     var el = document.querySelector('#workspace-row .info-value');
     if (!el) return '';
     return (el.getAttribute('title') || el.textContent || '').trim();
+})();
+const MERGE_VIEW_TEMPLATE_HTML = (function () {
+    var tpl = document.getElementById('merge-view-template');
+    if (!tpl) return '';
+    return tpl.innerHTML || '';
 })();
 
 const I18N = {
@@ -117,6 +123,16 @@ const I18N = {
         confirmAction: '确定',
         mergeCanceledClean: '已取消合并，工作副本已清理完成。',
         mergeCanceledDirty: '取消完成，但工作副本尚未完全清理，请查看上方阶段日志。',
+        workspaceDirtyTitle: '工作副本清理',
+        workspaceDirtyStatus: '当前工作副本存在未提交或未入库文件，清理后才能继续。',
+        workspaceDirtySectionTitle: '检测到工作副本有变更',
+        workspaceDirtyPrompt: '请先清理以下文件，再继续后续操作。',
+        cleanWorkspaceNow: '立即清理',
+        closePage: '关闭',
+        continueToLog: '继续',
+        workspaceCleanReady: '工作副本已清理完成，可以继续进入日志选择。',
+        cleanupRunning: '正在清理工作副本...',
+        cleanupStartingHint: '正在启动清理流程，请稍候。',
         doneNoCommit: '完成（不提交）',
         commit: '提交',
         committing: '提交中...',
@@ -229,6 +245,16 @@ const I18N = {
         confirmAction: 'Confirm',
         mergeCanceledClean: 'Merge canceled and workspace cleanup finished.',
         mergeCanceledDirty: 'Cancellation finished, but workspace cleanup still needs attention. Check the pipeline above.',
+        workspaceDirtyTitle: 'Workspace Cleanup',
+        workspaceDirtyStatus: 'This workspace has local or unversioned changes. Clean it before continuing.',
+        workspaceDirtySectionTitle: 'Detected workspace changes',
+        workspaceDirtyPrompt: 'Clean the following paths before proceeding.',
+        cleanWorkspaceNow: 'Clean Now',
+        closePage: 'Close',
+        continueToLog: 'Continue',
+        workspaceCleanReady: 'Workspace cleanup finished. You can continue to the log selection view.',
+        cleanupRunning: 'Cleaning workspace...',
+        cleanupStartingHint: 'Starting cleanup pipeline, please wait.',
         doneNoCommit: 'Done (no commit)',
         commit: 'Commit',
         committing: 'Committing...',
@@ -408,6 +434,11 @@ function init() {
         applyRunOptionsToUI();
         applyLanguage();
         applyServerState(__INITIAL_STATE__);
+        if (Array.isArray(__INITIAL_STATE__.dirtyWorkspaceLines) && __INITIAL_STATE__.dirtyWorkspaceLines.length > 0) {
+            showDirtyWorkspaceGate(__INITIAL_STATE__.dirtyWorkspaceLines);
+            return;
+        }
+        setUiMode('list');
         if (__INITIAL_STATE__.stopRev > 1) {
             document.getElementById('stop-rev-row').style.display = '';
             document.getElementById('stop-rev-info').textContent =
@@ -1284,11 +1315,151 @@ function createMergeSectionController(sectionsEl) {
     };
 }
 
+function setUiMode(mode) {
+    currentUiMode = mode;
+}
+
+function createPipelineView(title, statusText, statusColor) {
+    if (!MERGE_VIEW_TEMPLATE_HTML) {
+        throw new Error('Missing merge-view-template');
+    }
+
+    document.body.innerHTML = MERGE_VIEW_TEMPLATE_HTML;
+
+    var statusEl = document.getElementById('mv-status');
+    document.getElementById('mv-title').textContent = title;
+    statusEl.textContent = statusText || '';
+    if (statusColor) statusEl.style.color = statusColor;
+
+    return {
+        statusEl: statusEl,
+        sectionsEl: document.getElementById('mv-sections'),
+        previewBar: document.getElementById('mv-preview-bar'),
+        mergeBar: document.getElementById('mv-merge-bar'),
+        sectionController: createMergeSectionController(document.getElementById('mv-sections')),
+    };
+}
+
 function setMergeCancelAvailable(available) {
     var btn = document.getElementById('mv-run-cancel-btn');
     if (!btn) return;
     btn.disabled = !available;
     btn.style.display = available ? '' : 'none';
+}
+
+async function runWorkspaceCleanupPipeline(statusEl, sectionController, onDone) {
+    try {
+        var res = await fetch('/api/clean-workspace', { method: 'POST' });
+        await consumeEventStream(res, function (evt) {
+            if (evt.type === 'log') {
+                sectionController.appendLog(evt.text);
+            } else if (evt.type === 'section-start') {
+                sectionController.startSection(evt.title, evt.kind);
+            } else if (evt.type === 'section-end') {
+                sectionController.finalizeSection(evt.ok === false ? false : null);
+            } else if (evt.type === 'cleanup-done') {
+                onDone(!!evt.ok);
+            }
+        });
+    } catch (err) {
+        if (statusEl) {
+            statusEl.style.color = '#c42b1c';
+            statusEl.textContent = t('errorPrefix', { msg: (err.message || String(err)) });
+        }
+        onDone(false);
+    }
+}
+
+function showCleanupPipelineView(options) {
+    setUiMode('cleanup');
+    var view = createPipelineView(
+        t('workspaceDirtyTitle'),
+        options.statusText || t('workspaceDirtyStatus'),
+        options.statusColor || '#9a5c00'
+    );
+    var statusEl = view.statusEl;
+    var sectionsEl = view.sectionsEl;
+    var previewBar = view.previewBar;
+    var mergeBar = view.mergeBar;
+    var sectionController = view.sectionController;
+
+    previewBar.style.display = '';
+    mergeBar.style.display = 'none';
+    document.getElementById('mv-cancel-btn').textContent = options.cancelLabel || t('closePage');
+    document.getElementById('mv-continue-btn').textContent = options.continueLabel || t('cleanWorkspaceNow');
+    document.getElementById('mv-commit-btn').style.display = 'none';
+    document.getElementById('mv-done-btn').style.display = 'none';
+    document.getElementById('mv-run-cancel-btn').style.display = 'none';
+    document.getElementById('mv-back-btn').style.display = 'none';
+    document.getElementById('mv-commit-status').textContent = '';
+
+    if (Array.isArray(options.dirtyLines) && options.dirtyLines.length > 0) {
+        var dirtySection = document.createElement('div');
+        dirtySection.className = 'mv-section';
+        dirtySection.style.borderLeftColor = '#9a5c00';
+        dirtySection.innerHTML =
+            '<div class="mv-section-hd" style="cursor:default">' +
+            '<span class="mv-section-icon">\u26A0</span>' +
+            '<span class="mv-section-title">' + htmlEsc(t('workspaceDirtySectionTitle')) + '</span>' +
+            '</div>' +
+            '<div class="mv-section-bd">' +
+            '<div style="padding:12px 14px;color:#444;">' + htmlEsc(t('workspaceDirtyPrompt')) + '</div>' +
+            '<pre class="mv-section-log">' + htmlEsc(options.dirtyLines.join('\n')) + '</pre>' +
+            '</div>';
+        sectionsEl.appendChild(dirtySection);
+    }
+
+    document.getElementById('mv-cancel-btn').addEventListener('click', async function () {
+        if (typeof options.onCancel === 'function') {
+            await options.onCancel();
+            return;
+        }
+        await fetch('/api/cancel', { method: 'POST' }).catch(function () { });
+        window.close();
+    });
+
+    document.getElementById('mv-continue-btn').addEventListener('click', async function () {
+        document.getElementById('mv-cancel-btn').disabled = true;
+        document.getElementById('mv-continue-btn').disabled = true;
+        previewBar.style.display = 'none';
+        mergeBar.style.display = '';
+        sectionsEl.innerHTML = '';
+        statusEl.style.color = '#9a5c00';
+        statusEl.textContent = options.runningStatusText || t('cleanupRunning');
+        sectionController.startSection(options.runningSectionTitle || t('workspaceDirtyTitle'), 'info');
+        sectionController.appendLog(options.runningHintText || t('cleanupStartingHint'));
+
+        await options.runPipeline(statusEl, sectionController, function (ok) {
+            var backBtn = document.getElementById('mv-back-btn');
+            backBtn.style.display = '';
+            backBtn.textContent = options.backLabel || t('continueToLog');
+            backBtn.disabled = false;
+            backBtn.addEventListener('click', function () {
+                if (typeof options.onBack === 'function') {
+                    options.onBack(ok);
+                    return;
+                }
+                window.location.href = '/';
+            });
+            if (ok) {
+                statusEl.style.color = '#107c10';
+                statusEl.textContent = options.successStatusText || t('workspaceCleanReady');
+            } else {
+                statusEl.style.color = '#c42b1c';
+                statusEl.textContent = options.failureStatusText || t('mergeCanceledDirty');
+            }
+        });
+    });
+}
+
+function showDirtyWorkspaceGate(dirtyLines) {
+    showCleanupPipelineView({
+        dirtyLines: dirtyLines,
+        runPipeline: runWorkspaceCleanupPipeline,
+        onBack: function () {
+            window.location.href = '/';
+        }
+    });
 }
 
 async function consumeEventStream(res, onEvent) {
@@ -1318,13 +1489,8 @@ async function consumeEventStream(res, onEvent) {
 }
 
 function showMergeView(revisions, options) {
-    var tpl = document.getElementById('merge-view-template');
-    if (!tpl || !tpl.content) {
-        throw new Error('Missing merge-view-template');
-    }
-
-    document.body.innerHTML = '';
-    document.body.appendChild(tpl.content.cloneNode(true));
+    setUiMode('merge');
+    var view = createPipelineView(t('mergeTitle'), t('pendingStatus', { count: revisions.length }));
 
     // Build a rev -> entry map from allEntries for showing commit messages
     var entryMap = {};
@@ -1332,16 +1498,15 @@ function showMergeView(revisions, options) {
         entryMap[allEntries[i].revision] = allEntries[i];
     }
 
-    var statusEl = document.getElementById('mv-status');
-    statusEl.textContent = t('pendingStatus', { count: revisions.length });
+    var statusEl = view.statusEl;
     mergeRunFinished = false;
     mergeCleanupFinished = false;
     mergeFinalized = false;
     activeMergeAbortController = null;
-    var sectionController = createMergeSectionController(document.getElementById('mv-sections'));
+    var sectionController = view.sectionController;
 
     // Build preview section listing all pending commits
-    var sectionsEl = document.getElementById('mv-sections');
+    var sectionsEl = view.sectionsEl;
     var previewDiv = document.createElement('div');
     previewDiv.className = 'mv-section';
     previewDiv.style.borderLeftColor = '#0078d4';
@@ -1368,8 +1533,8 @@ function showMergeView(revisions, options) {
     document.getElementById('mv-commit-msg').value = t('mergedFromSourceBranch', { revs: revLabel });
 
     // Show preview bottombar (Continue/Cancel), hide merge bottombar
-    document.getElementById('mv-preview-bar').style.display = '';
-    document.getElementById('mv-merge-bar').style.display = 'none';
+    view.previewBar.style.display = '';
+    view.mergeBar.style.display = 'none';
     document.getElementById('mv-cancel-btn').textContent = t('cancel');
     document.getElementById('mv-continue-btn').textContent = t('continue');
     document.getElementById('mv-title').textContent = t('mergeTitle');
@@ -1393,10 +1558,6 @@ function showMergeView(revisions, options) {
         document.getElementById('mv-cancel-overlay').style.display = 'flex';
     }
 
-    function showBackButton() {
-        document.getElementById('mv-back-btn').style.display = '';
-    }
-
     document.getElementById('mv-cancel-btn').addEventListener('click', function () {
         window.location.reload();
     });
@@ -1411,8 +1572,8 @@ function showMergeView(revisions, options) {
         previewDiv.remove();
 
         // Switch to merge bottombar
-        document.getElementById('mv-preview-bar').style.display = 'none';
-        document.getElementById('mv-merge-bar').style.display = '';
+        view.previewBar.style.display = 'none';
+        view.mergeBar.style.display = '';
 
         if (options && options.autoCommit) {
             document.getElementById('mv-commit-status').textContent = t('autoCommitEnabledHint');
@@ -1450,12 +1611,28 @@ function showMergeView(revisions, options) {
         document.getElementById('mv-cancel-overlay-confirm').addEventListener('click', async function () {
             hideCancelOverlay();
             setMergeCancelAvailable(false);
-            document.getElementById('mv-commit-btn').disabled = true;
-            document.getElementById('mv-done-btn').disabled = true;
-            statusEl.style.color = '#9a5c00';
-            statusEl.textContent = t('canceling');
-            document.getElementById('mv-commit-status').textContent = '';
-            await cancelMergeRun(statusEl, sectionController, showBackButton);
+            if (activeMergeAbortController) {
+                activeMergeAbortController.abort();
+                activeMergeAbortController = null;
+            }
+            showCleanupPipelineView({
+                statusText: t('canceling'),
+                statusColor: '#9a5c00',
+                cancelLabel: t('back'),
+                continueLabel: t('confirmAction'),
+                backLabel: t('back'),
+                successStatusText: t('mergeCanceledClean'),
+                failureStatusText: t('mergeCanceledDirty'),
+                onCancel: async function () {
+                    window.location.reload();
+                },
+                onBack: function () {
+                    window.location.reload();
+                },
+                runPipeline: async function (cleanupStatusEl, cleanupSectionController, onDone) {
+                    await cancelMergeRun(cleanupStatusEl, cleanupSectionController, onDone);
+                }
+            });
         });
         document.getElementById('mv-overlay-ok').addEventListener('click', async function () {
             var msg = (document.getElementById('mv-commit-msg').value || '').trim();
@@ -1567,7 +1744,7 @@ async function runMerge(revisions, options, statusEl, sectionController) {
     }
 }
 
-async function cancelMergeRun(statusEl, sectionController, onBackReady) {
+async function cancelMergeRun(statusEl, sectionController, onDone) {
     mergeCleanupFinished = false;
     if (activeMergeAbortController) {
         activeMergeAbortController.abort();
@@ -1586,7 +1763,7 @@ async function cancelMergeRun(statusEl, sectionController, onBackReady) {
             } else if (evt.type === 'cleanup-done') {
                 mergeCleanupFinished = true;
                 setMergeCancelAvailable(false);
-                onBackReady();
+                onDone(!!evt.ok);
                 if (evt.ok) {
                     statusEl.style.color = '#107c10';
                     statusEl.textContent = t('mergeCanceledClean');
@@ -1599,7 +1776,7 @@ async function cancelMergeRun(statusEl, sectionController, onBackReady) {
     } catch (err) {
         statusEl.style.color = '#c42b1c';
         statusEl.textContent = t('errorPrefix', { msg: (err.message || String(err)) });
-        onBackReady();
+        onDone(false);
     }
 }
 

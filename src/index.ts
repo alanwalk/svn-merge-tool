@@ -5,7 +5,7 @@ import { Command } from 'commander';
 import * as fs from 'fs';
 import * as path from 'path';
 
-import { findDefaultConfig, loadConfig } from './config';
+import { resolveCommandConfig } from './cli-config';
 import { Logger } from './logger';
 import { run } from './merger';
 import { buildMessage } from './message';
@@ -124,7 +124,6 @@ checkForUpdate(APP_VERSION, rcConfig);
 
 const opts = program.opts<{ config?: string; workspace?: string; from?: string; revisions?: string; verbose?: boolean; output?: string; ignore?: string; commit?: boolean }>();
 
-// ─── Load config file (if provided) ──────────────────────────────────────────
 let configWorkspace: string | undefined;
 let configFromUrl: string | undefined;
 let configIgnoreMerge: string[] = [];
@@ -132,36 +131,31 @@ let configOutputDir: string | undefined;
 let configVerbose = false;
 let configCommit = false;
 
-// Resolve config path: explicit -c, or auto-discover from workspace first, then cwd
-let configPath = opts.config;
-if (!configPath && opts.workspace) {
-  configPath = findDefaultConfig(path.resolve(opts.workspace));
-}
-if (!configPath) {
-  configPath = findDefaultConfig();
-}
-
-if (configPath) {
-  try {
-    const cfg = loadConfig(configPath);
-    configWorkspace = cfg.workspace;
-    configFromUrl = cfg.from;
-    configIgnoreMerge = cfg.ignore ?? [];
-    configOutputDir = cfg.output;
-    configVerbose = cfg.verbose ?? false;
-    configCommit = cfg.commit ?? false;
+try {
+  const resolvedConfig = resolveCommandConfig({
+    configPath: opts.config,
+    workspace: opts.workspace,
+    fromUrl: opts.from,
+  });
+  configWorkspace = resolvedConfig.workspace;
+  configFromUrl = resolvedConfig.fromUrl;
+  configIgnoreMerge = resolvedConfig.configIgnorePaths;
+  configOutputDir = resolvedConfig.configOutputDir;
+  configVerbose = resolvedConfig.configVerbose;
+  configCommit = resolvedConfig.configCommit;
+  if (resolvedConfig.resolvedConfigPath) {
     const label = opts.config ? 'Config loaded' : 'Config auto-detected';
-    console.log(term.cyan(`${label}: ${path.resolve(configPath)}`));
-  } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e);
-    console.error(term.red(`Error: ${msg}`));
-    process.exit(1);
+    console.log(term.cyan(`${label}: ${resolvedConfig.resolvedConfigPath}`));
   }
+} catch (e: unknown) {
+  const msg = e instanceof Error ? e.message : String(e);
+  console.error(term.red(`Error: ${msg}`));
+  process.exit(1);
 }
 
 // CLI options take precedence over config file
-const rawWorkspace = opts.workspace ?? configWorkspace;
-const rawFromUrl = opts.from ?? configFromUrl;
+const rawWorkspace = configWorkspace;
+const rawFromUrl = configFromUrl;
 
 if (!rawWorkspace) {
   console.error(term.red('Error: workspace is required. Provide -w <path>, -c <config>, or place svnmerge.yaml in the current/parent directory.'));

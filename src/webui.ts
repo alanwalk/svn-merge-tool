@@ -7,21 +7,20 @@ import {
   isMainThread, parentPort as _workerParent, Worker, workerData as _workerData
 } from 'worker_threads';
 
-import { findDefaultConfig, loadConfig } from './config';
+import { resolveCommandConfig } from './cli-config';
 import { resolveConsoleLanguage, tr } from './i18n';
 import { LogCache } from './logcache';
 import { Logger } from './logger';
 import { RunLogger, runMergePipeline, SectionKind } from './pipeline';
 import {
-  svnBranchCreationRevision, svnCleanWorkspace, svnCommit, svnEligibleRevisions, svnInfo,
-  svnLogBatch, svnLogPage, svnStatusDirty, svnWorkspaceUrl
+  svnBranchCreationRevision, svnCleanWorkspace, svnCommit, svnEligibleRevisions,
+  svnLogPage, svnStatusDirty, svnWorkspaceUrl
 } from './svn';
 import { LogEntry, MergeSummary } from './types';
-import { checkForUpdate, loadOrCreateRc } from './updater';
-import { compressRevisions, getPackageVersion, term } from './utils';
+import { loadOrCreateRc } from './updater';
+import { compressRevisions, term } from './utils';
 
 const PAGE_SIZE = 100;
-const APP_VERSION = getPackageVersion();
 
 interface UiRunOptions {
   lang: 'zh-CN' | 'en';
@@ -129,19 +128,6 @@ function parseRevisionsArg(input: string): number[] {
   }
 
   return revisions;
-}
-
-/** Simple sync y/N prompt for terminal mode. */
-function promptYN(question: string): boolean {
-  process.stdout.write(question);
-  const buf = Buffer.alloc(16);
-  try {
-    const n = (require('fs') as typeof import('fs')).readSync(0, buf, 0, buf.length, null);
-    const input = buf.slice(0, n).toString().trim().toLowerCase();
-    return input === 'y';
-  } catch {
-    return false;
-  }
 }
 
 // ─── Worker mode (spawned by /api/run-merge) ─────────────────────────────────
@@ -292,6 +278,7 @@ function openBrowser(url: string): void {
 interface ServerState {
   fromUrl: string;
   workspace: string | null;
+  dirtyWorkspaceLines: string[];
   loadedEntries: LogEntry[];
   eligibleSet: Set<number>;
   nextStartRev: number;   // next revision to start loading from (going backwards)
@@ -306,6 +293,7 @@ function buildClientState(s: ServerState) {
   return {
     fromUrl: s.fromUrl,
     workspace: s.workspace,
+    dirtyWorkspaceLines: s.dirtyWorkspaceLines,
     entries: s.loadedEntries,
     eligibleRevisions: Array.from(s.eligibleSet),
     hasMore: s.hasMore,
@@ -486,6 +474,7 @@ export function openLogUI(
   const state: ServerState = {
     fromUrl,
     workspace,
+    dirtyWorkspaceLines: workspace ? svnStatusDirty(workspace) : [],
     loadedEntries: [],
     eligibleSet,
     nextStartRev: -1, // will use HEAD
@@ -512,11 +501,6 @@ export function openLogUI(
 
   // Do not pre-load additional pages here.
   // The browser loads more pages incrementally to avoid blocking startup.
-
-  const clientState = buildClientState(state);
-  const stateJson = JSON.stringify(clientState);
-  const runOptionsJson = JSON.stringify(state.runOptions);
-  const initialHtml = buildHtmlFromTemplate(branchName, fromUrl, workspace, stateJson, runOptionsJson);
 
   let selectedRevisions: number[] = [];
 
@@ -556,8 +540,15 @@ export function openLogUI(
 
       // ── GET / ────────────────────────────────────────────────────────────────
       if (method === 'GET' && url === '/') {
-        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Content-Length': Buffer.byteLength(initialHtml) });
-        res.end(initialHtml);
+        const html = buildHtmlFromTemplate(
+          branchName,
+          fromUrl,
+          workspace,
+          JSON.stringify(buildClientState(state)),
+          JSON.stringify(state.runOptions),
+        );
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Content-Length': Buffer.byteLength(html) });
+        res.end(html);
         return;
       }
 
@@ -764,6 +755,78 @@ export function openLogUI(
         return;
       }
 
+      // ── POST /api/clean-workspace ───────────────────────────────────────────
+      if (method === 'POST' && url === '/api/clean-workspace') {
+        stopHeartbeat();
+
+        res.writeHead(200, {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+          'Transfer-Encoding': 'chunked',
+        });
+        const sendEvent = (data: unknown) => res.write(`data: ${JSON.stringify(data)}\n\n`);
+        const finishCleanStream = () => {
+          if (!res.writableEnded) {
+            res.write('data: [DONE]\n\n');
+            res.end();
+          }
+          resumeHeartbeat();
+        };
+
+        Promise.resolve().then(() => {
+          try {
+            if (!workspace) {
+              throw new Error('No workspace configured');
+            }
+
+            sendEvent({ type: 'section-start', title: tr(state.runOptions.lang, 'workerCleanupWorkspaceTitle'), kind: 'info' });
+            sendEvent({ type: 'log', text: tr(state.runOptions.lang, 'workerCleanupWorkspaceStarting') });
+            const result = svnCleanWorkspace(workspace);
+            sendEvent({
+              type: 'log',
+              text: tr(state.runOptions.lang, 'workerCleanupWorkspaceResult', {
+                reverted: result.reverted,
+                removed: result.removed,
+              }),
+            });
+            if (result.failed.length > 0) {
+              sendEvent({ type: 'log', text: tr(state.runOptions.lang, 'workerCleanupWorkspaceFailed', { count: result.failed.length }) });
+              for (const item of result.failed) {
+                sendEvent({ type: 'log', text: `  ${item}` });
+              }
+              state.dirtyWorkspaceLines = svnStatusDirty(workspace);
+              sendEvent({ type: 'section-end', ok: false });
+              sendEvent({ type: 'cleanup-done', ok: false });
+              finishCleanStream();
+              return;
+            }
+
+            const remainingDirty = svnStatusDirty(workspace);
+            state.dirtyWorkspaceLines = remainingDirty;
+            if (remainingDirty.length > 0) {
+              sendEvent({ type: 'log', text: tr(state.runOptions.lang, 'workerCleanupWorkspaceStillDirty', { count: remainingDirty.length }) });
+              for (const item of remainingDirty) {
+                sendEvent({ type: 'log', text: `  ${item}` });
+              }
+              sendEvent({ type: 'section-end', ok: false });
+              sendEvent({ type: 'cleanup-done', ok: false });
+              finishCleanStream();
+              return;
+            }
+
+            sendEvent({ type: 'log', text: tr(state.runOptions.lang, 'workerCleanupWorkspaceDone') });
+            sendEvent({ type: 'section-end', ok: true });
+            sendEvent({ type: 'cleanup-done', ok: true });
+          } catch (e) {
+            sendEvent({ type: 'log', text: tr(state.runOptions.lang, 'workerCleanupWorkspaceError', { error: (e as Error).message }) });
+            sendEvent({ type: 'cleanup-done', ok: false });
+          } finally {
+            finishCleanStream();
+          }
+        }).catch(() => finishCleanStream());
+        return;
+      }
+
       // ── POST /api/commit ──────────────────────────────────────────────────────
       if (method === 'POST' && url === '/api/commit') {
         readBody(req).then((body) => {
@@ -864,19 +927,6 @@ export async function uiCommand(args: string[]): Promise<void> {
   const { lang, fallbackWarning } = resolveConsoleLanguage();
   if (fallbackWarning) console.log(term.yellow(fallbackWarning));
 
-  function runTimedStep<T>(label: string, fn: () => T): T {
-    const start = Date.now();
-    console.log(term.cyan(tr(lang, 'startupStepRunning', { label })));
-    try {
-      const result = fn();
-      console.log(term.cyan(tr(lang, 'startupStepDone', { label, elapsedMs: Date.now() - start })));
-      return result;
-    } catch (e) {
-      console.log(term.cyan(tr(lang, 'startupStepFailed', { label, elapsedMs: Date.now() - start })));
-      throw e;
-    }
-  }
-
   // Parse args manually: keep behavior aligned with main CLI options.
   let fromUrl: string | undefined;
   let workspace: string | undefined;
@@ -917,32 +967,21 @@ export async function uiCommand(args: string[]): Promise<void> {
     }
   }
 
-  // Try config file if from/workspace not given on CLI.
-  // Discovery order (when -c is omitted):
-  //   1) workspace directory (if -w is provided)
-  //   2) current working directory upward
-  if (!fromUrl || !workspace) {
-    let cfgFile = configPath;
-    if (!cfgFile && workspace) {
-      cfgFile = findDefaultConfig(path.resolve(workspace));
-    }
-    if (!cfgFile) {
-      cfgFile = findDefaultConfig();
-    }
-    if (cfgFile) {
-      try {
-        const cfg = loadConfig(cfgFile);
-        if (!fromUrl && cfg.from) fromUrl = cfg.from;
-        if (!workspace && cfg.workspace) workspace = path.resolve(cfg.workspace);
-        if (cfg.ignore && cfg.ignore.length > 0) configIgnorePaths = cfg.ignore;
-        configOutputDir = cfg.output;
-        configVerbose = !!cfg.verbose;
-        configCommit = !!cfg.commit;
-      } catch (e) {
-        console.error(term.red(`Config error: ${(e as Error).message}`));
-        process.exit(1);
-      }
-    }
+  try {
+    const resolvedConfig = resolveCommandConfig({
+      configPath,
+      workspace,
+      fromUrl,
+    });
+    fromUrl = resolvedConfig.fromUrl;
+    workspace = resolvedConfig.workspace;
+    configIgnorePaths = resolvedConfig.configIgnorePaths;
+    configOutputDir = resolvedConfig.configOutputDir;
+    configVerbose = resolvedConfig.configVerbose;
+    configCommit = resolvedConfig.configCommit;
+  } catch (e) {
+    console.error(term.red(`Config error: ${(e as Error).message}`));
+    process.exit(1);
   }
 
   if (!fromUrl) {
@@ -953,8 +992,7 @@ export async function uiCommand(args: string[]): Promise<void> {
 
   const resolvedWorkspace = workspace ? path.resolve(workspace) : null;
 
-  const rcConfig = runTimedStep(tr(lang, 'loadUserConfig'), () => loadOrCreateRc());
-  runTimedStep(tr(lang, 'checkForUpdates'), () => checkForUpdate(APP_VERSION, rcConfig, lang));
+  const rcConfig = loadOrCreateRc();
 
   const cliIgnorePaths = cliIgnoreArg
     ? cliIgnoreArg.split(',').map((s) => s.trim()).filter(Boolean)
@@ -978,47 +1016,6 @@ export async function uiCommand(args: string[]): Promise<void> {
         ? rawOutputDir
         : path.resolve(resolvedWorkspace, rawOutputDir))
       : path.join(resolvedWorkspace, '.svnmerge');
-
-    // Preflight dirty check at command start
-    let dirtyLines = runTimedStep(tr(lang, 'scanWorkingCopyStatus'), () => svnStatusDirty(resolvedWorkspace));
-    if (dirtyLines.length > 0) {
-      console.error(term.yellow(tr(lang, 'warningDirtyCount', { count: dirtyLines.length })));
-      for (const line of dirtyLines) {
-        console.error(term.red(`  ${line}`));
-      }
-
-      const autoClean = promptYN(term.yellow(tr(lang, 'autoCleanPrompt')));
-      if (!autoClean) {
-        console.error(term.red(tr(lang, 'abortedCleanRetry')));
-        process.exit(1);
-      }
-
-      try {
-        const result = svnCleanWorkspace(resolvedWorkspace);
-        console.log(term.cyan(tr(lang, 'workspaceCleaned', { reverted: result.reverted, removed: result.removed })));
-        if (result.failed.length > 0) {
-          console.error(term.red(tr(lang, 'cleanupFailedCount', { count: result.failed.length })));
-          for (const item of result.failed) {
-            console.error(term.red(`  ${item}`));
-          }
-          process.exit(1);
-        }
-      } catch (e) {
-        console.error(term.red(tr(lang, 'autoCleanError', { error: (e as Error).message })));
-        process.exit(1);
-      }
-
-      dirtyLines = runTimedStep(tr(lang, 'rescanWorkingCopyStatus'), () => svnStatusDirty(resolvedWorkspace));
-      if (dirtyLines.length > 0) {
-        console.error(term.red(tr(lang, 'workspaceStillDirty')));
-        for (const line of dirtyLines) {
-          console.error(term.red(`  ${line}`));
-        }
-        process.exit(1);
-      }
-
-      console.log(term.cyan(tr(lang, 'workspaceCleanOpeningUi')));
-    }
   }
 
   const runOptions: UiRunOptions = {
@@ -1030,13 +1027,6 @@ export async function uiCommand(args: string[]): Promise<void> {
     copyToClipboard: cliCopyToClipboard ?? rcConfig.copyToClipboard,
     preselectedRevisions,
   };
-
-  console.log(term.cyan(tr(lang, 'svnMergeUiTitle')));
-  console.log(term.cyan(`  from      : ${fromUrl}`));
-  if (resolvedWorkspace) console.log(term.cyan(`  workspace : ${resolvedWorkspace}`));
-  if (!resolvedWorkspace) console.log(term.cyan(tr(lang, 'workspaceNoneReadOnly')));
-  console.log(term.cyan(`  commit    : ${runOptions.autoCommit}`));
-  console.log('');
 
   const selected = await openLogUI(fromUrl, resolvedWorkspace, runOptions);
 
