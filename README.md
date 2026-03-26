@@ -8,7 +8,7 @@ A CLI tool for merging specific SVN revisions one by one, with automatic conflic
 
 - Merge revisions individually (`svn merge -c`) with automatic conflict resolution
 - **Text / Property conflicts** → accept incoming (`theirs-full`)
-- **Tree conflicts** → keep local (`working`)
+- **Tree conflicts** → accept source changes (`theirs-full`) for non-ignored paths
 - **Ignore rules** — paths matching `ignore-merge` patterns are always discarded (reverted), even when they produce no conflict
 - `--dry-run` mode — preview eligible revisions and their log messages without making any changes
 - `-C, --commit` — automatically run `svn commit` after a successful merge, using the generated message file as the commit log
@@ -75,6 +75,23 @@ svn-merge-tool -w /path/to/copy -f http://svn.example.com/branches/feature -r 10
 # Override workspace from config
 svn-merge-tool -c ./svn.yaml -w /path/to/override -r 1001,1002,1003
 ```
+
+## Web UI (Recommended For Non-CLI Users)
+
+Use the UI command to run merge flow in a browser with safety guards and guided options.
+
+```bash
+svn-merge-tool ui -c ./svn.yaml
+svn-merge-tool ui -f http://svn.example.com/branches/feature -w /path/to/copy
+svn-merge-tool ui -f http://svn.example.com/branches/feature -d -r 84597-84610
+```
+
+Supported UI options are aligned with CLI options: `-f`, `-w`, `-c`, `-r`, `-i`, `-o`, `-V`, `-d`, `-C`.
+
+CLI output and Web UI startup output auto-switch between Chinese and English based on system language.
+On Windows, if a non-UTF8 console code page is detected (`chcp` not 65001), output falls back to English to avoid garbled Chinese text.
+
+You can force language via environment variable: `SVN_MERGE_LANG=zh-CN` or `SVN_MERGE_LANG=en`.
 
 ## Config File
 
@@ -144,9 +161,10 @@ The log file is written to the `output` directory (default: `.svnmerge/` under w
 
 | Conflict Type                            | Behavior                                        |
 | ---------------------------------------- | ----------------------------------------------- |
-| Tree conflict                            | `svn resolve --accept working`                  |
+| Tree conflict (non-ignored path)         | `svn resolve --accept theirs-full`              |
 | Text conflict                            | `svn resolve --accept theirs-full`              |
 | Property conflict                        | `svn resolve --accept theirs-full`              |
+| Tree/Text/Property on ignored path       | force `svn resolve --accept working`            |
 | Ignored path (any conflict)              | Override → `working`, displayed in gray         |
 | Ignored path (no conflict, but modified) | `svn revert`, displayed in gray as `(reverted)` |
 

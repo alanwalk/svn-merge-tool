@@ -5,6 +5,8 @@ export interface MergeOptions {
   workspace: string;
   fromUrl: string;
   revisions: number[];
+  /** UI/CLI output language */
+  lang?: 'zh-CN' | 'en';
   /** Workspace-relative paths to ignore during merge (files or folders) */
   ignorePaths?: string[];
   /** When true, print ignored/reverted entries on the console */
@@ -58,4 +60,17 @@ export interface MergeSummary {
   withConflicts: number;
   failed: number;
   results: RevisionMergeResult[];
+}
+
+/**
+ * A single SVN log entry (used by the log GUI)
+ */
+export interface LogEntry {
+  revision: number;
+  author: string;
+  /** ISO 8601 date string */
+  date: string;
+  message: string;
+  /** Changed paths from svn log --verbose */
+  paths: string[];
 }

@@ -4,6 +4,8 @@ import { load as yamlLoad } from 'js-yaml';
 import * as os from 'os';
 import * as path from 'path';
 
+import { tr } from './i18n';
+
 const RC_PATH = path.join(os.homedir(), '.svnmergerc');
 
 function getStateDir(): string {
@@ -166,7 +168,7 @@ function promptYN(question: string): boolean {
  * - Skips check if checkUpdate is false or interval has not elapsed.
  * - If a newer version is found, prints the npmjs URL and prompts to update.
  */
-export function checkForUpdate(currentVersion: string, rc?: RcConfig): void {
+export function checkForUpdate(currentVersion: string, rc?: RcConfig, lang: 'zh-CN' | 'en' = 'en'): void {
   const resolvedRc = rc ?? loadOrCreateRc();
   if (!resolvedRc.checkUpdate) return;
   const effectiveRc = resolvedRc;
@@ -185,20 +187,20 @@ export function checkForUpdate(currentVersion: string, rc?: RcConfig): void {
 
   if (!isNewer(currentVersion, latest)) return;
 
-  console.log(CYAN(`\nUpdate available: v${currentVersion} → v${latest}`));
+  console.log(CYAN(tr(lang, `\nUpdate available: v${currentVersion} → v${latest}`, `\n发现新版本：v${currentVersion} → v${latest}`)));
   console.log(CYAN(`  ${NPM_URL}\n`));
 
-  if (promptYN(YELLOW(`Run "npm install -g ${PACKAGE_NAME}" now? [y/N] `))) {
-    console.log(CYAN(`\nRunning: npm install -g ${PACKAGE_NAME} ...`));
+  if (promptYN(YELLOW(tr(lang, `Run "npm install -g ${PACKAGE_NAME}" now? [y/N] `, `是否现在执行 "npm install -g ${PACKAGE_NAME}"？[y/N] `)))) {
+    console.log(CYAN(tr(lang, `\nRunning: npm install -g ${PACKAGE_NAME} ...`, `\n正在执行：npm install -g ${PACKAGE_NAME} ...`)));
     const result = spawnSync('npm', ['install', '-g', PACKAGE_NAME], {
       stdio: 'inherit',
       shell: true,
     });
     if (result.status === 0) {
-      console.log(GREEN('\nUpdate successful! Please restart the command.\n'));
+      console.log(GREEN(tr(lang, '\nUpdate successful! Please restart the command.\n', '\n更新成功！请重新执行命令。\n')));
       process.exit(0);
     } else {
-      console.log(YELLOW(`\nUpdate failed. Please run manually:\n  npm install -g ${PACKAGE_NAME}\n`));
+      console.log(YELLOW(tr(lang, `\nUpdate failed. Please run manually:\n  npm install -g ${PACKAGE_NAME}\n`, `\n更新失败。请手动执行：\n  npm install -g ${PACKAGE_NAME}\n`)));
     }
   } else {
     console.log();

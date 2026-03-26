@@ -8,13 +8,14 @@
 
 - 逐条执行 `svn merge -c`，自动解决冲突
 - **文本 / 属性冲突** → 接受对方修改（`theirs-full`）
-- **树冲突** → 保留本地版本（`working`）
+- **树冲突** → 非忽略路径接受来源分支修改（`theirs-full`）
 - **忽略规则** — 匹配 `ignore-merge` 的路径始终丢弃（revert），即使没有产生冲突
 - `--dry-run` 模式 — 预览待合并的修订版本及其日志，不执行任何实际修改
 - `--commit` — 合并成功后自动执行 `svn commit`，以生成的 message.txt 内容作为提交日志
 - 控制台仅显示精简进度（带颜色），完整日志实时写入 `svnmerge-<时间戳>.log`
 - 提交信息（修订版本范围 + `svn log` 正文）追加到日志文件末尾
 - 合并前自动执行 `svn update`，检测工作副本脏状态并提示 `[y/N]`
+- 若检测到未提交或未入库文件，可交互选择自动清理（回滚版本化改动并删除未入库文件）后继续
 - 支持 YAML 配置文件，从当前目录向上自动查找
 
 ## 安装
@@ -81,6 +82,24 @@ svn-merge-tool -c ./svn.yaml -w /path/to/override -r 1001,1002,1003
 # 显示忽略/还原文件详情
 svn-merge-tool -V -r 1001,1002
 ```
+
+## Web UI（推荐给不熟悉命令行的同学）
+
+使用 `ui` 子命令可在浏览器内完成合并流程，带有运行前校验、二次确认和防误操作提示。
+
+```bash
+svn-merge-tool ui -c ./svn.yaml
+svn-merge-tool ui -f http://svn.example.com/branches/feature -w /path/to/copy
+svn-merge-tool ui -f http://svn.example.com/branches/feature -d -r 84597-84610
+```
+
+UI 支持与命令行一致的核心选项：`-f`、`-w`、`-c`、`-r`、`-i`、`-o`、`-V`、`-d`、`-C`。
+
+命令行输出与 Web UI 会按系统语言在中文/英文之间自动切换。若在 Windows 下检测到非 UTF-8 控制台编码（例如 `chcp` 非 65001），为避免中文乱码会自动回退到英文输出。
+
+可通过环境变量强制指定语言：`SVN_MERGE_LANG=zh-CN` 或 `SVN_MERGE_LANG=en`。
+
+当使用 `ui` 且指定了 `workspace` 时，如果检测到未提交或未入库文件，会先在终端提示是否自动清理；确认后会自动回滚版本化改动并删除未入库文件，再继续打开 UI。
 
 ## 配置文件
 
@@ -149,13 +168,13 @@ Merge Summary:
 
 ## 冲突解决规则
 
-| 冲突类型                   | 处理方式                                       |
-| -------------------------- | ---------------------------------------------- |
-| 树冲突                     | `svn resolve --accept working`（保留本地）     |
-| 文本冲突                   | `svn resolve --accept theirs-full`（接受对方） |
-| 属性冲突                   | `svn resolve --accept theirs-full`（接受对方） |
-| 忽略路径（有冲突）         | 强制改为 `working`，灰色显示                   |
-| 忽略路径（无冲突但有修改） | `svn revert`，灰色显示为 `(reverted)`          |
+| 冲突类型                                       | 处理方式                                       |
+| ---------------------------------------------- | ---------------------------------------------- |
+| 树冲突（非忽略路径）                           | `svn resolve --accept theirs-full`（接受对方） |
+| 文本冲突                                       | `svn resolve --accept theirs-full`（接受对方） |
+| 属性冲突                                       | `svn resolve --accept theirs-full`（接受对方） |
+| 忽略路径（树/文本/属性冲突）                   | 强制改为 `working`，灰色显示                   |
+| 忽略路径（无冲突但有修改，含 property change） | `svn revert`，灰色显示为 `(reverted)`          |
 
 ## 技术栈
 

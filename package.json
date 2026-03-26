@@ -26,7 +26,7 @@
     },
     "scripts": {
         "start": "ts-node src/index.ts",
-        "build": "tsc",
+        "build": "tsc && node scripts/copy-ui-assets.js",
         "lint": "tsc --noEmit",
         "prepublishOnly": "npm run lint && npm run build"
     },
