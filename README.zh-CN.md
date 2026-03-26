@@ -12,8 +12,10 @@
 - **忽略规则** — 匹配 `ignore-merge` 的路径始终丢弃（revert），即使没有产生冲突
 - `--commit` — 合并成功后自动执行 `svn commit`，以生成的 message.txt 内容作为提交日志
 - 控制台仅显示精简进度（带颜色），完整日志实时写入 `svnmerge-<时间戳>.log`
+- `svnmerge-ui` — 独立 WebUI 入口；`svnmerge ui` 为兼容别名
+- `svnmerge cleanup` — 将工作副本恢复为干净状态
 - 提交信息（修订版本范围 + `svn log` 正文）追加到日志文件末尾
-- 合并前自动执行 `svn update`，检测工作副本脏状态并提示 `[y/N]`
+- 工作副本存在脏状态时会直接阻止 merge；如确认要重置，可使用 `svnmerge cleanup`
 - 支持 YAML 配置文件，从当前目录向上自动查找
 
 ## 安装
@@ -35,45 +37,94 @@ npm link
 
 ## 用法
 
+```bash
+svnmerge --help
+
+命令:
+  svnmerge run [选项]
+  svnmerge cleanup [选项]
+  svnmerge ui [选项]
+  svnmerge-ui [选项]
 ```
-svnmerge [选项]
+
+### `svnmerge run`
+
+```bash
+svnmerge run [选项]
 
 选项:
   -c, --config <path>       YAML 配置文件路径
   -w, --workspace <path>    SVN 工作副本目录
-  -f, --from <url>         合并来源分支 URL
+  -f, --from <url>          合并来源分支 URL
   -r, --revisions <list>    修订版本或范围，例如 1001,1002-1005,1008
-  -o, --output <path>       输出文件目录（覆盖配置中的 output）
-  -i, --ignore <paths>      逗号分隔的忽略路径（追加到配置的 ignore 列表）
+  -o, --output <path>       输出文件目录
+  -i, --ignore <paths>      逗号分隔的忽略路径
   -V, --verbose             在控制台显示 ignored/reverted 文件详情
-  -C, --commit              合并成功后自动执行 svn commit（使用生成的 message.txt）
-  -v, --version             显示版本号
-  -h, --help                显示帮助
+  -C, --commit              合并成功后自动执行 svn commit
+```
+
+不带子命令时，`svnmerge` 默认等价于 `svnmerge run`。
+
+### `svnmerge cleanup`
+
+```bash
+svnmerge cleanup [选项]
+
+选项:
+  -c, --config <path>       YAML 配置文件路径
+  -w, --workspace <path>    SVN 工作副本目录
+  -V, --verbose             输出 cleanup 详情
+  -y, --yes                 跳过确认提示
+```
+
+### `svnmerge-ui` / `svnmerge ui`
+
+```bash
+svnmerge-ui [选项]
+svnmerge ui [选项]
+
+选项:
+  -f, --from <url>          合并来源分支 URL
+  -w, --workspace <path>    SVN 工作副本目录
+  -c, --config <path>       YAML 配置文件路径
+  -r, --revisions <list>    预选修订版本或范围
+  -i, --ignore <paths>      逗号分隔的忽略路径
+  -o, --output <path>       日志输出目录
+  -V, --verbose             显示 ignored/reverted 详情
+  -C, --commit              合并成功后自动提交
+      --copy-to-clipboard   强制开启复制合并消息到剪贴板
+      --no-copy-to-clipboard 强制关闭复制合并消息到剪贴板
 ```
 
 ### 示例
 
 ```bash
 # 自动向上查找 svnmerge.yaml
-svnmerge -r 84597-84608,84610
+svnmerge run -r 84597-84608,84610
 
 # 合并后自动提交，使用生成的 message 文件作为日志
-svnmerge -r 1001 -C
+svnmerge run -r 1001 -C
 
 # 命令行传入忽略路径（追加到配置文件的 ignore 列表）
-svnmerge -r 1001 -i src/thirdparty/generated,assets/auto
+svnmerge run -r 1001 -i src/thirdparty/generated,assets/auto
 
 # 指定配置文件
-svnmerge -c ./svn.yaml -r 84597-84608,84610
+svnmerge run -c ./svn.yaml -r 84597-84608,84610
 
 # 全部通过命令行参数指定
-svnmerge -w /path/to/copy -f http://svn.example.com/branches/feature -r 1001,1002
+svnmerge run -w /path/to/copy -f http://svn.example.com/branches/feature -r 1001,1002
 
 # 覆盖配置文件中的 workspace
-svnmerge -c ./svn.yaml -w /path/to/override -r 1001,1002,1003
+svnmerge run -c ./svn.yaml -w /path/to/override -r 1001,1002,1003
 
 # 显示忽略/还原文件详情
-svnmerge -V -r 1001,1002
+svnmerge run -V -r 1001,1002
+
+# 打开 WebUI
+svnmerge-ui -c ./svn.yaml
+
+# 清理工作副本
+svnmerge cleanup -w /path/to/copy
 ```
 
 ## 配置文件
@@ -158,6 +209,12 @@ Merge Summary:
 - [js-yaml](https://github.com/nodeca/js-yaml) — YAML 配置解析
 
 ## 更新日志
+
+### 1.1.0-beta
+- 重构：对外命令调整为 `svnmerge run`、`svnmerge cleanup` 与 `svnmerge-ui`；`svnmerge` 默认等价于 `run`，`svnmerge ui` 保留为兼容别名
+- 重构：CLI 与 WebUI 共享同一套 merge pipeline 和 cleanup workflow
+- 重构：merge 进度与输出改为通过可组合 logger 渲染，不再由 merge 核心直接写 `stdout`
+- 行为变更：工作副本存在脏状态时会直接阻止 merge；如需重置，请先确认后执行 `svnmerge cleanup`
 
 ### 1.0.8
 - 修复：合并后仅有属性变更的路径现在会保留在后置变更检测中，因此工作副本根目录这类 `svn:mergeinfo` 更新也会被自动提交纳入

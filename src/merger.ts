@@ -3,7 +3,7 @@ import { svnMerge, svnResolve, svnRevert, svnStatusAfterMerge } from './svn';
 import {
     ConflictInfo, MergeOptions, MergeSummary, RevertedInfo, RevisionMergeResult
 } from './types';
-import { formatConflictLine, isIgnored, relPath, term } from './utils';
+import { formatConflictLine, isIgnored, relPath } from './utils';
 
 /**
  * Merge a single revision and auto-resolve conflicts.
@@ -109,42 +109,64 @@ export function run(options: MergeOptions, logger: ILogger): MergeSummary {
     const pct = Math.round(((i + 1) / total) * 100);
     const label = `[${i + 1}/${total}] r${rev}  ${pct}%`;
 
-    // Minimal console progress
-    process.stdout.write(label + '\n');
+    logger.emitMergeProgress?.({
+      type: 'revision-start',
+      index: i,
+      total,
+      revision: rev,
+      percent: pct,
+      label,
+    });
 
     const result = mergeRevision(rev, fromUrl, workspace, logger, ignorePaths);
     results.push(result);
 
-    // Overwrite progress line with colored result; then print conflicts below
-    if (!result.success) {
-      process.stdout.write(`${term.rewritePreviousLine(term.red(label + '  FAILED'))}\n`);
-    } else if (result.conflicts.length > 0 || result.reverted.length > 0) {
-      const activeConflicts = result.conflicts.filter((c) => !c.ignored);
-      const ignoredConflicts = result.conflicts.filter((c) => c.ignored);
-      const ignoredCount = ignoredConflicts.length + result.reverted.length;
-      const parts: string[] = [];
-      if (activeConflicts.length > 0) parts.push(`${activeConflicts.length} conflict(s)`);
-      if (ignoredCount > 0) parts.push(`${ignoredCount} ignored`);
-      const hasTreeConflict = activeConflicts.some((c) => c.type === 'tree');
-      const labelColor = hasTreeConflict ? term.red : term.yellow;
-      process.stdout.write(`${term.rewritePreviousLine(labelColor(label + `  (${parts.join(', ')})`))}\n`);
-      for (const c of activeConflicts) {
-        const rel = relPath(c.path, workspace);
-        const line = formatConflictLine(c.type, c.isDirectory, rel, c.resolution);
-        process.stdout.write((c.type === 'tree' ? term.red : term.yellow)(`  ${line}\n`));
-      }
+    const activeConflicts = result.conflicts.filter((c) => !c.ignored);
+    const ignoredConflicts = result.conflicts.filter((c) => c.ignored);
+    const ignoredCount = ignoredConflicts.length + result.reverted.length;
+    const hasTreeConflict = activeConflicts.some((c) => c.type === 'tree');
+
+    logger.emitMergeProgress?.({
+      type: 'revision-result',
+      index: i,
+      total,
+      revision: rev,
+      label,
+      ok: result.success,
+      hasConflicts: result.conflicts.length > 0 || result.reverted.length > 0,
+      hasTreeConflict,
+      activeConflictCount: activeConflicts.length,
+      ignoredCount,
+    });
+
+    for (const c of activeConflicts) {
+      const rel = relPath(c.path, workspace);
+      const line = formatConflictLine(c.type, c.isDirectory, rel, c.resolution);
+      logger.emitMergeProgress?.({
+        type: 'revision-detail',
+        level: c.type === 'tree' ? 'active-tree-conflict' : 'active-conflict',
+        text: `  ${line}`,
+      });
+    }
+    if (verbose) {
       for (const c of ignoredConflicts) {
         const rel = relPath(c.path, workspace);
         const line = formatConflictLine(c.type, c.isDirectory, rel, 'ignored');
-        if (verbose) process.stdout.write(term.gray(`  ${line}\n`));
+        logger.emitMergeProgress?.({
+          type: 'revision-detail',
+          level: 'ignored-conflict',
+          text: `  ${line}`,
+        });
       }
       for (const r of result.reverted) {
         const rel = relPath(r.path, workspace);
         const kindTag = r.isDirectory ? '[D]' : '[F]';
-        if (verbose) process.stdout.write(term.gray(`  [NONE    ]${kindTag}  ${rel}  (ignored)\n`));
+        logger.emitMergeProgress?.({
+          type: 'revision-detail',
+          level: 'ignored-reverted',
+          text: `  [NONE    ]${kindTag}  ${rel}  (ignored)`,
+        });
       }
-    } else {
-      process.stdout.write(`${term.rewritePreviousLine(term.green(label + '  ✓'))}\n`);
     }
   }
 

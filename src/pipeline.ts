@@ -11,25 +11,10 @@
 import { tr } from './i18n';
 import { run as mergerRun } from './merger';
 import { buildMessage } from './message';
+import { RunLogger, SectionKind } from './output/run-logger-types';
 import { svnCommit, svnUpdate } from './svn';
 import { MergeSummary } from './types';
 import { compressRevisions, groupSummaryByType, relPath } from './utils';
-
-export type SectionKind = 'info' | 'merge' | 'summary' | 'message' | 'commit';
-
-/**
- * Abstract logger interface.
- * CLI adapter:   sectionStart/End → visual separator in terminal
- * WebUI adapter: sectionStart/End → SSE section-start/section-end events
- */
-export interface RunLogger {
-    log(text: string): void;
-    appendRaw(text: string): void;
-    /** Called when a major step begins. */
-    sectionStart(title: string, kind?: SectionKind): void;
-    /** Called when the current step finishes. ok=false → failure, else success. */
-    sectionEnd(ok?: boolean): void;
-}
 
 export interface PipelineOptions {
     workspace: string;
@@ -46,6 +31,7 @@ export interface PipelineResult {
     summary: MergeSummary;
     mergeMessage: string;
     autoCommitAttempted: boolean;
+    autoCommitSkipped: boolean;
     autoCommitOk: boolean;
     autoCommitOutput: string;
     autoCommitError: string;
@@ -72,7 +58,11 @@ export function runMergePipeline(
 
     // ── 1. SVN Update ──────────────────────────────────────────────────────────
     logger.sectionStart(tr(lang, 'svnUpdateTitle'), 'info');
-    svnUpdate(workspace, lang);
+    logger.log(tr(lang, 'svnUpdateWorkingCopy').trimEnd());
+    const updateLine = svnUpdate(workspace, lang);
+    if (updateLine.trim()) {
+        logger.log(updateLine);
+    }
     logger.sectionEnd(true);
 
     // ── 2. Merge ───────────────────────────────────────────────────────────────
@@ -170,7 +160,7 @@ export function runMergePipeline(
 
     // ── 4. Merge Message ───────────────────────────────────────────────────────
     logger.sectionStart(tr(lang, 'mergeMessageTitle'), 'message');
-    const mergeMessage = buildMessage(summary, fromUrl, lang);
+    const mergeMessage = buildMessage(summary, fromUrl, lang, logger);
     logger.appendRaw('\n' + '='.repeat(72) + '\n');
     logger.appendRaw(mergeMessage);
     logger.appendRaw('='.repeat(72) + '\n');
@@ -182,6 +172,7 @@ export function runMergePipeline(
 
     // ── 5. Auto-commit ─────────────────────────────────────────────────────────
     let autoCommitAttempted = false;
+    let autoCommitSkipped = false;
     let autoCommitOk = false;
     let autoCommitOutput = '';
     let autoCommitError = '';
@@ -208,15 +199,28 @@ export function runMergePipeline(
                 reasons.push(tr(lang, 'unresolvedConflictsReason', { revisions: conflictRevs }));
             }
             autoCommitOk = false;
+            autoCommitSkipped = true;
             autoCommitError = tr(lang, 'autoCommitSkipped', { reasons: reasons.join(', ') });
             logger.log(autoCommitError);
         } else if (summary.succeeded === 0) {
             autoCommitOk = false;
+            autoCommitSkipped = true;
             autoCommitError = tr(lang, 'autoCommitSkippedNoSuccess');
             logger.log(autoCommitError);
         } else {
             try {
-                autoCommitOutput = svnCommit(workspace, mergeMessage);
+                const allModifiedPaths = [
+                    ...new Map(
+                        summary.results
+                            .filter((r) => r.success)
+                            .flatMap((r) => r.modified.map((m) => [m.path, m]))
+                    ).values(),
+                ].map((m) => m.path);
+                autoCommitOutput = svnCommit(
+                    workspace,
+                    mergeMessage,
+                    allModifiedPaths.length > 0 ? allModifiedPaths : undefined,
+                );
                 autoCommitOk = true;
                 logger.log(tr(lang, 'autoCommitSuccessful'));
                 if (autoCommitOutput.trim()) {
@@ -235,6 +239,7 @@ export function runMergePipeline(
         summary,
         mergeMessage,
         autoCommitAttempted,
+        autoCommitSkipped,
         autoCommitOk,
         autoCommitOutput,
         autoCommitError,

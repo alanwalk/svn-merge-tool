@@ -1,5 +1,6 @@
 import { tr } from './i18n';
 import { svnLogBatch } from './svn';
+import { RunLogger } from './output/run-logger-types';
 import { MergeSummary } from './types';
 import { branchName, compressRevisions } from './utils';
 
@@ -19,6 +20,7 @@ export function buildMessage(
   summary: MergeSummary,
   fromUrl: string,
   lang: 'zh-CN' | 'en' = 'en',
+  logger?: Pick<RunLogger, 'log'>,
 ): string {
   const branch = branchName(fromUrl);
 
@@ -34,9 +36,8 @@ export function buildMessage(
   });
   const lines: string[] = [header];
 
-  process.stdout.write(tr(lang, 'fetchingRevisionLogs'));
+  logger?.log(tr(lang, 'fetchingRevisionLogs').trimEnd());
   const logMap = svnLogBatch(mergedRevisions, fromUrl);
-  process.stdout.write(' '.repeat(40) + '\r');
 
   for (const rev of mergedRevisions) {
     const body = logMap.get(rev) ?? '';

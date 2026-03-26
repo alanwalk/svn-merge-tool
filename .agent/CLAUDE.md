@@ -20,6 +20,7 @@
 3. **NEVER** modify version numbers (`package.json`, `src/index.ts`) autonomously — user controls versioning
 4. **NEVER** create markdown files to document changes unless explicitly requested
 5. When editing files, always use `multi_replace_string_in_file` for multiple independent edits in one call
+6. Repository-internal planning/design/change documentation should default to **Chinese** unless the user explicitly requests another language
 
 ---
 

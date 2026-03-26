@@ -7,18 +7,23 @@ import {
   isMainThread, parentPort as _workerParent, Worker, workerData as _workerData
 } from 'worker_threads';
 
-import { resolveCommandConfig } from './cli-config';
-import { resolveConsoleLanguage, tr } from './i18n';
+import { tr } from './i18n';
 import { LogCache } from './logcache';
 import { Logger } from './logger';
-import { RunLogger, runMergePipeline, SectionKind } from './pipeline';
+import { copyToClipboard } from './modules/platform/copy-to-clipboard';
+import { CompositeRunLogger } from './output/composite-run-logger';
+import { FileRunLogger } from './output/file/file-run-logger';
+import { RunLogger } from './output/run-logger-types';
+import { SseRunLogger } from './output/webui/sse-run-logger';
+import { TerminalRunLogger } from './output/terminal/terminal-run-logger';
+import { runMergePipeline } from './pipeline';
 import {
-  svnBranchCreationRevision, svnCleanWorkspace, svnCommit, svnEligibleRevisions,
+  svnBranchCreationRevision, svnCommit, svnEligibleRevisions,
   svnLogPage, svnStatusDirty, svnWorkspaceUrl
 } from './svn';
 import { LogEntry, MergeSummary } from './types';
-import { loadOrCreateRc } from './updater';
 import { compressRevisions, term } from './utils';
+import { runCleanupWorkflow } from './workflows/cleanup-workflow';
 
 const PAGE_SIZE = 100;
 
@@ -73,63 +78,6 @@ function makeStartTs(): string {
   );
 }
 
-/** Copy text to system clipboard (best-effort). */
-function copyToClipboard(text: string): void {
-  try {
-    if (process.platform === 'win32') {
-      spawnSync(
-        'powershell',
-        ['-noprofile', '-sta', '-command',
-          '[Console]::InputEncoding=[Text.Encoding]::UTF8;Set-Clipboard([Console]::In.ReadToEnd())'],
-        { input: text, encoding: 'utf8', timeout: 5000 }
-      );
-    } else if (process.platform === 'darwin') {
-      spawnSync('pbcopy', [], { input: text, encoding: 'utf8', timeout: 5000 });
-    } else {
-      spawnSync('xclip', ['-selection', 'clipboard'], { input: text, encoding: 'utf8', timeout: 5000 });
-    }
-  } catch {
-    // silently ignore clipboard errors
-  }
-}
-
-function parseRevisionsArg(input: string): number[] {
-  const rawRevisions = input
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean);
-
-  if (rawRevisions.length === 0) {
-    throw new Error('No revisions specified. Use -r 1001,1002,1003');
-  }
-
-  const revisions: number[] = [];
-  for (const raw of rawRevisions) {
-    const rangeMatch = raw.match(/^(\d+)-(\d+)$/);
-    if (rangeMatch) {
-      const from = parseInt(rangeMatch[1], 10);
-      const to = parseInt(rangeMatch[2], 10);
-      if (from <= 0 || to <= 0) {
-        throw new Error(`Invalid revision range "${raw}". Revisions must be positive integers.`);
-      }
-      if (from > to) {
-        throw new Error(`Invalid revision range "${raw}": start must be <= end.`);
-      }
-      for (let rev = from; rev <= to; rev++) {
-        revisions.push(rev);
-      }
-    } else {
-      const n = parseInt(raw, 10);
-      if (isNaN(n) || n <= 0) {
-        throw new Error(`Invalid revision "${raw}". Use integers or ranges like 1001-1005.`);
-      }
-      revisions.push(n);
-    }
-  }
-
-  return revisions;
-}
-
 // ─── Worker mode (spawned by /api/run-merge) ─────────────────────────────────
 if (!isMainThread) {
   const wd = _workerData as {
@@ -138,7 +86,6 @@ if (!isMainThread) {
     runOptions: UiRunOptions;
   };
   const postLog = (text: string) => _workerParent!.postMessage({ type: 'log', text });
-  const origWrite = (process.stdout.write as (...a: unknown[]) => boolean).bind(process.stdout);
 
   let summary: MergeSummary = { total: 0, succeeded: 0, withConflicts: 0, failed: 0, results: [] };
   let mergeMessage = '';
@@ -149,65 +96,59 @@ if (!isMainThread) {
   let autoCommitError = '';
 
   let fileLogger: Logger | null = null;
+  const prepLogger: RunLogger = new CompositeRunLogger([
+    new TerminalRunLogger(!!wd.runOptions.verbose),
+    new SseRunLogger(
+      postLog,
+      (title, kind) => _workerParent!.postMessage({ type: 'section-start', title, kind }),
+      (ok) => _workerParent!.postMessage({ type: 'section-end', ok: ok !== false }),
+      !!wd.runOptions.verbose,
+    ),
+  ]);
 
-  const sseLogger: RunLogger = {
-    log(text: string) {
-      postLog(text);
-      fileLogger?.log(text);
-    },
-    appendRaw(text: string) {
-      fileLogger?.appendRaw(text);
-      text.split('\n').map((l) => l.trimEnd()).filter(Boolean).forEach(postLog);
-    },
-    sectionStart(title: string, kind?: SectionKind) {
-      _workerParent!.postMessage({ type: 'section-start', title, kind });
-      fileLogger?.log(`\n${'\u2500'.repeat(60)}`);
-      fileLogger?.log(`  ${title}`);
-    },
-    sectionEnd(ok?: boolean) {
-      _workerParent!.postMessage({ type: 'section-end', ok: ok !== false });
-    },
-  };
-
-  (process.stdout as NodeJS.WriteStream & { write: (...a: unknown[]) => boolean }).write = (s: unknown) => {
-    if (typeof s === 'string') {
-      const clean = term.stripAnsi(s).trimEnd();
-      if (clean) postLog(clean);
-    }
-    return true;
-  };
+  let compositeLogger: RunLogger = prepLogger;
 
   let prepSectionOpen = false;
   try {
     if (wd.revisions.length > 0 && wd.workspace) {
-      sseLogger.sectionStart(tr(wd.runOptions.lang, 'workerPrepareMergeTitle'), 'info');
+      prepLogger.sectionStart(tr(wd.runOptions.lang, 'workerPrepareMergeTitle'), 'info');
       prepSectionOpen = true;
-      sseLogger.log(tr(wd.runOptions.lang, 'workerPrepareMergeCheckingWorkspace'));
+      prepLogger.log(tr(wd.runOptions.lang, 'workerPrepareMergeCheckingWorkspace'));
 
       // Dirty check first, before creating output files under workspace
       const dirtyLines = svnStatusDirty(wd.workspace);
       if (dirtyLines.length > 0) {
-        sseLogger.log(tr(wd.runOptions.lang, 'workerDirtyError', { count: dirtyLines.length }));
-        for (const dl of dirtyLines) sseLogger.log(`  ${dl}`);
+        prepLogger.log(tr(wd.runOptions.lang, 'workerDirtyError', { count: dirtyLines.length }));
+        for (const dl of dirtyLines) prepLogger.log(`  ${dl}`);
         throw new Error(tr(wd.runOptions.lang, 'workerCleanRetryError'));
       }
 
-      sseLogger.log(tr(wd.runOptions.lang, 'workerPrepareMergeCreateLog'));
+      prepLogger.log(tr(wd.runOptions.lang, 'workerPrepareMergeCreateLog'));
       const outputDir = wd.runOptions.outputDir && wd.runOptions.outputDir.trim()
         ? wd.runOptions.outputDir.trim()
         : path.join(wd.workspace ?? process.cwd(), '.svnmerge');
       fileLogger = new Logger(outputDir, makeStartTs());
       logPath = fileLogger.getLogPath();
+      compositeLogger = new CompositeRunLogger([
+        new FileRunLogger(fileLogger),
+        new TerminalRunLogger(!!wd.runOptions.verbose),
+        new SseRunLogger(
+          postLog,
+          (title, kind) => _workerParent!.postMessage({ type: 'section-start', title, kind }),
+          (ok) => _workerParent!.postMessage({ type: 'section-end', ok: ok !== false }),
+          !!wd.runOptions.verbose,
+        ),
+      ]);
 
       // Pre-merge info
-      sseLogger.log('\u2500'.repeat(60));
-      sseLogger.log(tr(wd.runOptions.lang, 'workerWorkspace', { workspace: wd.workspace }));
-      sseLogger.log(tr(wd.runOptions.lang, 'workerFrom', { fromUrl: wd.fromUrl }));
-      sseLogger.log(tr(wd.runOptions.lang, 'workerRevisions', { revisions: compressRevisions(wd.revisions) }));
-      sseLogger.log(`auto-commit=${wd.runOptions.autoCommit}  verbose=${wd.runOptions.verbose}`);
-      sseLogger.log(tr(wd.runOptions.lang, 'workerWorkingCopyClean'));
-      sseLogger.log(tr(wd.runOptions.lang, 'workerPrepareMergeReady'));
-      sseLogger.sectionEnd(true);
+      compositeLogger.log('\u2500'.repeat(60));
+      compositeLogger.log(tr(wd.runOptions.lang, 'workerWorkspace', { workspace: wd.workspace }));
+      compositeLogger.log(tr(wd.runOptions.lang, 'workerFrom', { fromUrl: wd.fromUrl }));
+      compositeLogger.log(tr(wd.runOptions.lang, 'workerRevisions', { revisions: compressRevisions(wd.revisions) }));
+      compositeLogger.log(`auto-commit=${wd.runOptions.autoCommit}  verbose=${wd.runOptions.verbose}`);
+      compositeLogger.log(tr(wd.runOptions.lang, 'workerWorkingCopyClean'));
+      compositeLogger.log(tr(wd.runOptions.lang, 'workerPrepareMergeReady'));
+      compositeLogger.sectionEnd(true);
       prepSectionOpen = false;
 
       const pipelineResult = runMergePipeline(
@@ -221,7 +162,7 @@ if (!isMainThread) {
           autoCommit: wd.runOptions.autoCommit,
           copyToClipboard: wd.runOptions.copyToClipboard,
         },
-        sseLogger,
+        compositeLogger,
         copyToClipboard,
       );
 
@@ -234,14 +175,13 @@ if (!isMainThread) {
     }
   } catch (e) {
     if (prepSectionOpen) {
-      sseLogger.sectionEnd(false);
+      prepLogger.sectionEnd(false);
       prepSectionOpen = false;
     }
     postLog(tr(wd.runOptions.lang, 'workerGenericError', { error: (e as Error).message }));
     summary = { total: 0, succeeded: 0, withConflicts: 0, failed: 0, results: [] };
   } finally {
     if (fileLogger) fileLogger.close();
-    (process.stdout as NodeJS.WriteStream & { write: (...a: unknown[]) => boolean }).write = origWrite;
   }
 
   const donePayload: WorkerDonePayload = {
@@ -708,42 +648,21 @@ export function openLogUI(
               throw new Error('No workspace configured');
             }
 
-            sendEvent({ type: 'section-start', title: tr(state.runOptions.lang, 'workerCleanupWorkspaceTitle'), kind: 'info' });
-            sendEvent({ type: 'log', text: tr(state.runOptions.lang, 'workerCleanupWorkspaceStarting') });
-            const result = svnCleanWorkspace(workspace);
-            sendEvent({
-              type: 'log',
-              text: tr(state.runOptions.lang, 'workerCleanupWorkspaceResult', {
-                reverted: result.reverted,
-                removed: result.removed,
-              }),
-            });
-            if (result.failed.length > 0) {
-              sendEvent({ type: 'log', text: tr(state.runOptions.lang, 'workerCleanupWorkspaceFailed', { count: result.failed.length }) });
-              for (const item of result.failed) {
-                sendEvent({ type: 'log', text: `  ${item}` });
-              }
-              sendEvent({ type: 'section-end', ok: false });
-              sendEvent({ type: 'cleanup-done', ok: false });
+            const cleanupLogger = new CompositeRunLogger([
+              new TerminalRunLogger(!!state.runOptions.verbose),
+              new SseRunLogger(
+                (text) => sendEvent({ type: 'log', text }),
+                (title, kind) => sendEvent({ type: 'section-start', title, kind }),
+                (ok) => sendEvent({ type: 'section-end', ok: ok !== false }),
+                !!state.runOptions.verbose,
+              ),
+            ]);
+            const summary = runCleanupWorkflow({ workspace, lang: state.runOptions.lang }, cleanupLogger);
+            sendEvent({ type: 'cleanup-done', ok: summary.failedCount === 0 && summary.workspaceCleanAfterCleanup });
+            if (summary.failedCount > 0 || !summary.workspaceCleanAfterCleanup) {
               finishCancelStream();
               return;
             }
-
-            const remainingDirty = svnStatusDirty(workspace);
-            if (remainingDirty.length > 0) {
-              sendEvent({ type: 'log', text: tr(state.runOptions.lang, 'workerCleanupWorkspaceStillDirty', { count: remainingDirty.length }) });
-              for (const item of remainingDirty) {
-                sendEvent({ type: 'log', text: `  ${item}` });
-              }
-              sendEvent({ type: 'section-end', ok: false });
-              sendEvent({ type: 'cleanup-done', ok: false });
-              finishCancelStream();
-              return;
-            }
-
-            sendEvent({ type: 'log', text: tr(state.runOptions.lang, 'workerCleanupWorkspaceDone') });
-            sendEvent({ type: 'section-end', ok: true });
-            sendEvent({ type: 'cleanup-done', ok: true });
           } catch (e) {
             sendEvent({ type: 'log', text: tr(state.runOptions.lang, 'workerCleanupWorkspaceError', { error: (e as Error).message }) });
             sendEvent({ type: 'cleanup-done', ok: false });
@@ -779,44 +698,22 @@ export function openLogUI(
               throw new Error('No workspace configured');
             }
 
-            sendEvent({ type: 'section-start', title: tr(state.runOptions.lang, 'workerCleanupWorkspaceTitle'), kind: 'info' });
-            sendEvent({ type: 'log', text: tr(state.runOptions.lang, 'workerCleanupWorkspaceStarting') });
-            const result = svnCleanWorkspace(workspace);
-            sendEvent({
-              type: 'log',
-              text: tr(state.runOptions.lang, 'workerCleanupWorkspaceResult', {
-                reverted: result.reverted,
-                removed: result.removed,
-              }),
-            });
-            if (result.failed.length > 0) {
-              sendEvent({ type: 'log', text: tr(state.runOptions.lang, 'workerCleanupWorkspaceFailed', { count: result.failed.length }) });
-              for (const item of result.failed) {
-                sendEvent({ type: 'log', text: `  ${item}` });
-              }
-              state.dirtyWorkspaceLines = svnStatusDirty(workspace);
-              sendEvent({ type: 'section-end', ok: false });
-              sendEvent({ type: 'cleanup-done', ok: false });
+            const cleanupLogger = new CompositeRunLogger([
+              new TerminalRunLogger(!!state.runOptions.verbose),
+              new SseRunLogger(
+                (text) => sendEvent({ type: 'log', text }),
+                (title, kind) => sendEvent({ type: 'section-start', title, kind }),
+                (ok) => sendEvent({ type: 'section-end', ok: ok !== false }),
+                !!state.runOptions.verbose,
+              ),
+            ]);
+            const summary = runCleanupWorkflow({ workspace, lang: state.runOptions.lang }, cleanupLogger);
+            state.dirtyWorkspaceLines = svnStatusDirty(workspace);
+            sendEvent({ type: 'cleanup-done', ok: summary.failedCount === 0 && summary.workspaceCleanAfterCleanup });
+            if (summary.failedCount > 0 || !summary.workspaceCleanAfterCleanup) {
               finishCleanStream();
               return;
             }
-
-            const remainingDirty = svnStatusDirty(workspace);
-            state.dirtyWorkspaceLines = remainingDirty;
-            if (remainingDirty.length > 0) {
-              sendEvent({ type: 'log', text: tr(state.runOptions.lang, 'workerCleanupWorkspaceStillDirty', { count: remainingDirty.length }) });
-              for (const item of remainingDirty) {
-                sendEvent({ type: 'log', text: `  ${item}` });
-              }
-              sendEvent({ type: 'section-end', ok: false });
-              sendEvent({ type: 'cleanup-done', ok: false });
-              finishCleanStream();
-              return;
-            }
-
-            sendEvent({ type: 'log', text: tr(state.runOptions.lang, 'workerCleanupWorkspaceDone') });
-            sendEvent({ type: 'section-end', ok: true });
-            sendEvent({ type: 'cleanup-done', ok: true });
           } catch (e) {
             sendEvent({ type: 'log', text: tr(state.runOptions.lang, 'workerCleanupWorkspaceError', { error: (e as Error).message }) });
             sendEvent({ type: 'cleanup-done', ok: false });
@@ -922,128 +819,3 @@ export function openLogUI(
   });
 }
 
-// ─── ui subcommand entry point ────────────────────────────────────────────────
-export async function uiCommand(args: string[]): Promise<void> {
-  const { lang, fallbackWarning } = resolveConsoleLanguage();
-  if (fallbackWarning) console.log(term.yellow(fallbackWarning));
-
-  // Parse args manually: keep behavior aligned with main CLI options.
-  let fromUrl: string | undefined;
-  let workspace: string | undefined;
-  let configPath: string | undefined;
-  let configIgnorePaths: string[] = [];
-  let configOutputDir: string | undefined;
-  let configVerbose = false;
-  let configCommit = false;
-
-  let cliIgnoreArg: string | undefined;
-  let cliOutput: string | undefined;
-  let cliRevisionsArg: string | undefined;
-  let cliVerbose = false;
-  let cliCommit = false;
-  let cliCopyToClipboard: boolean | undefined;
-
-  for (let i = 0; i < args.length; i++) {
-    const a = args[i];
-    if ((a === '-f' || a === '--from') && args[i + 1]) { fromUrl = args[++i]; continue; }
-    if ((a === '-w' || a === '--workspace') && args[i + 1]) { workspace = args[++i]; continue; }
-    if ((a === '-c' || a === '--config') && args[i + 1]) { configPath = args[++i]; continue; }
-    if ((a === '-i' || a === '--ignore') && args[i + 1]) { cliIgnoreArg = args[++i]; continue; }
-    if ((a === '-o' || a === '--output') && args[i + 1]) { cliOutput = args[++i]; continue; }
-    if ((a === '-r' || a === '--revisions') && args[i + 1]) { cliRevisionsArg = args[++i]; continue; }
-    if (a === '-V' || a === '--verbose') { cliVerbose = true; continue; }
-    if (a === '-C' || a === '--commit') { cliCommit = true; continue; }
-    if (a === '--copy-to-clipboard') { cliCopyToClipboard = true; continue; }
-    if (a === '--no-copy-to-clipboard') { cliCopyToClipboard = false; continue; }
-    if (a === '--help' || a === '-h') {
-      console.log(tr(lang, 'uiUsage'));
-      return;
-    }
-
-    if (a.startsWith('-')) {
-      console.error(term.red(`Error: unknown option ${a}`));
-      console.error(tr(lang, 'unknownOptionHelp'));
-      process.exit(1);
-    }
-  }
-
-  try {
-    const resolvedConfig = resolveCommandConfig({
-      configPath,
-      workspace,
-      fromUrl,
-    });
-    fromUrl = resolvedConfig.fromUrl;
-    workspace = resolvedConfig.workspace;
-    configIgnorePaths = resolvedConfig.configIgnorePaths;
-    configOutputDir = resolvedConfig.configOutputDir;
-    configVerbose = resolvedConfig.configVerbose;
-    configCommit = resolvedConfig.configCommit;
-  } catch (e) {
-    console.error(term.red(`Config error: ${(e as Error).message}`));
-    process.exit(1);
-  }
-
-  if (!fromUrl) {
-    console.error(term.red(tr(lang, 'fromRequired')));
-    console.error(tr(lang, 'uiUsageShort'));
-    process.exit(1);
-  }
-
-  const resolvedWorkspace = workspace ? path.resolve(workspace) : null;
-
-  const rcConfig = loadOrCreateRc();
-
-  const cliIgnorePaths = cliIgnoreArg
-    ? cliIgnoreArg.split(',').map((s) => s.trim()).filter(Boolean)
-    : [];
-
-  let preselectedRevisions: number[] = [];
-  if (cliRevisionsArg) {
-    try {
-      preselectedRevisions = parseRevisionsArg(cliRevisionsArg);
-    } catch (e) {
-      console.error(term.red(`Error: ${(e as Error).message}`));
-      process.exit(1);
-    }
-  }
-
-  let outputDir = '';
-  const rawOutputDir = cliOutput ?? configOutputDir;
-  if (resolvedWorkspace) {
-    outputDir = rawOutputDir
-      ? (path.isAbsolute(rawOutputDir)
-        ? rawOutputDir
-        : path.resolve(resolvedWorkspace, rawOutputDir))
-      : path.join(resolvedWorkspace, '.svnmerge');
-  }
-
-  const runOptions: UiRunOptions = {
-    lang,
-    ignorePaths: [...rcConfig.globalIgnore, ...configIgnorePaths, ...cliIgnorePaths],
-    verbose: cliVerbose || configVerbose,
-    autoCommit: cliCommit || configCommit,
-    outputDir,
-    copyToClipboard: cliCopyToClipboard ?? rcConfig.copyToClipboard,
-    preselectedRevisions,
-  };
-
-  const selected = await openLogUI(fromUrl, resolvedWorkspace, runOptions);
-
-  if (selected === null) {
-    console.log(tr(lang, 'userCanceled'));
-    process.exit(0);
-  }
-
-  if (selected.length === 0) {
-    console.log(tr(lang, 'noRevisionsSelected'));
-    process.exit(0);
-  }
-
-  const sorted = [...selected].sort((a, b) => a - b);
-  console.log(term.cyan(tr(lang, 'uiFinishedRevisions', {
-    count: sorted.length,
-    revisions: sorted.map((r) => `r${r}`).join(', '),
-  })));
-  process.exit(0);
-}

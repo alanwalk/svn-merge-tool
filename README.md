@@ -12,8 +12,10 @@ A CLI tool for merging specific SVN revisions one by one, with automatic conflic
 - **Ignore rules** — paths matching `ignore-merge` patterns are always discarded (reverted), even when they produce no conflict
 - `-C, --commit` — automatically run `svn commit` after a successful merge, using the generated message file as the commit log
 - Minimal console progress with color-coded results; full details streamed to `svnmerge-<timestamp>.log`
+- `svnmerge-ui` — dedicated WebUI entry; `svnmerge ui` is a compatible alias
+- `svnmerge cleanup` — restore the workspace to a clean state
 - Commit message (revision range + `svn log` bodies) appended to the log file at the end of each run
-- Pre-merge `svn update` and dirty working-copy check with `[y/N]` prompt
+- Dirty working copies are blocked before merge; use `svnmerge cleanup` after review if you want to reset them
 - YAML config file with auto-discovery walking up from `cwd`
 
 ## Installation
@@ -29,45 +31,94 @@ npm link          # makes `svnmerge` available globally
 
 ## Usage
 
+```bash
+svnmerge --help
+
+Commands:
+  svnmerge run [options]
+  svnmerge cleanup [options]
+  svnmerge ui [options]
+  svnmerge-ui [options]
 ```
-svnmerge [options]
+
+### `svnmerge run`
+
+```bash
+svnmerge run [options]
 
 Options:
   -c, --config <path>       Path to YAML config file
   -w, --workspace <path>    SVN working copy directory
-  -f, --from <url>         Source branch URL to merge from
+  -f, --from <url>          Source branch URL to merge from
   -r, --revisions <list>    Revisions or ranges, e.g. 1001,1002-1005,1008
-  -o, --output <path>       Output directory for log and message files (overrides config)
-  -i, --ignore <paths>      Comma-separated paths to ignore (appended to config ignore list)
+  -o, --output <path>       Output directory for log and message files
+  -i, --ignore <paths>      Comma-separated paths to ignore
   -V, --verbose             Show ignored/reverted file details in console output
-  -C, --commit              Auto svn commit after successful merge (uses generated message file)
-  -v, --version             Output version number
-  -h, --help                Display help
+  -C, --commit              Auto svn commit after successful merge
+```
+
+`svnmerge` without a subcommand defaults to `svnmerge run`.
+
+### `svnmerge cleanup`
+
+```bash
+svnmerge cleanup [options]
+
+Options:
+  -c, --config <path>       Path to YAML config file
+  -w, --workspace <path>    SVN working copy directory
+  -V, --verbose             Show cleanup details in console output
+  -y, --yes                 Skip confirmation prompt
+```
+
+### `svnmerge-ui` / `svnmerge ui`
+
+```bash
+svnmerge-ui [options]
+svnmerge ui [options]
+
+Options:
+  -f, --from <url>          Source branch URL
+  -w, --workspace <path>    SVN working copy directory
+  -c, --config <path>       YAML config file
+  -r, --revisions <list>    Preselect revisions/ranges
+  -i, --ignore <paths>      Comma-separated paths to ignore
+  -o, --output <path>       Output directory for log file
+  -V, --verbose             Show ignored/reverted details
+  -C, --commit              Auto-commit after successful merge
+      --copy-to-clipboard   Force enable merge-message clipboard copy
+      --no-copy-to-clipboard Force disable merge-message clipboard copy
 ```
 
 ### Examples
 
 ```bash
 # Auto-discover svnmerge.yaml from cwd upward
-svnmerge -r 84597-84608,84610
+svnmerge run -r 84597-84608,84610
 
 # Merge and auto-commit using the generated message file
-svnmerge -r 1001 -C
+svnmerge run -r 1001 -C
 
 # Ignore specific paths on the command line (appended to config ignore list)
-svnmerge -r 1001 -i src/thirdparty/generated,assets/auto
+svnmerge run -r 1001 -i src/thirdparty/generated,assets/auto
 
 # Custom output directory
-svnmerge -r 1001 -o /logs/svn
+svnmerge run -r 1001 -o /logs/svn
 
 # Explicit config file
-svnmerge -c ./svn.yaml -r 84597-84608,84610
+svnmerge run -c ./svn.yaml -r 84597-84608,84610
 
 # All options on the command line
-svnmerge -w /path/to/copy -f http://svn.example.com/branches/feature -r 1001,1002
+svnmerge run -w /path/to/copy -f http://svn.example.com/branches/feature -r 1001,1002
 
 # Override workspace from config
-svnmerge -c ./svn.yaml -w /path/to/override -r 1001,1002,1003
+svnmerge run -c ./svn.yaml -w /path/to/override -r 1001,1002,1003
+
+# Open WebUI
+svnmerge-ui -c ./svn.yaml
+
+# Clean workspace after review
+svnmerge cleanup -w /path/to/copy
 ```
 
 ## Config File
@@ -151,6 +202,12 @@ The log file is written to the `output` directory (default: `.svnmerge/` under w
 - [js-yaml](https://github.com/nodeca/js-yaml) — YAML config parsing
 
 ## Changelog
+
+### 1.1.0-beta
+- Refactor: public commands are now `svnmerge run`, `svnmerge cleanup`, and `svnmerge-ui`; `svnmerge` defaults to `run`, and `svnmerge ui` remains a compatible alias
+- Refactor: CLI and WebUI now share the same merge pipeline and shared cleanup workflow
+- Refactor: merge progress/output is routed through composable loggers instead of direct `stdout` writes in the merge core
+- Behavior change: dirty working copies are now blocked before merge; use `svnmerge cleanup` after review if you need to reset the workspace
 
 ### 1.0.8
 - Fix: property-only modified paths after merge are now kept for post-merge change detection, so workspace-level `svn:mergeinfo` updates are included in auto-commit

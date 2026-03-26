@@ -16,7 +16,35 @@ function timestamp(): string {
 export interface ILogger {
   log(text: string): void;
   appendRaw(text: string): void;
+  emitMergeProgress?(event: MergeProgressEvent): void;
 }
+
+export type MergeProgressEvent =
+  | {
+    type: 'revision-start';
+    index: number;
+    total: number;
+    revision: number;
+    percent: number;
+    label: string;
+  }
+  | {
+    type: 'revision-result';
+    index: number;
+    total: number;
+    revision: number;
+    label: string;
+    ok: boolean;
+    hasConflicts: boolean;
+    hasTreeConflict: boolean;
+    activeConflictCount: number;
+    ignoredCount: number;
+  }
+  | {
+    type: 'revision-detail';
+    level: 'active-conflict' | 'active-tree-conflict' | 'ignored-conflict' | 'ignored-reverted';
+    text: string;
+  };
 
 export class Logger implements ILogger {
   private logPath: string;
