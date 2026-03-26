@@ -1,3 +1,4 @@
+import { tr } from './i18n';
 import { svnLogBatch } from './svn';
 import { MergeSummary } from './types';
 import { branchName, compressRevisions } from './utils';
@@ -17,6 +18,7 @@ const ENTRY_SEP = '........';
 export function buildMessage(
   summary: MergeSummary,
   fromUrl: string,
+  lang: 'zh-CN' | 'en' = 'en',
 ): string {
   const branch = branchName(fromUrl);
 
@@ -26,10 +28,14 @@ export function buildMessage(
     .map((r) => r.revision)
     .sort((a, b) => a - b);
 
-  const header = `Merged revision(s) ${compressRevisions(mergedRevisions)} from ${branch}:`;
+  const header = tr(
+    lang,
+    `Merged revision(s) ${compressRevisions(mergedRevisions)} from ${branch}:`,
+    `从 ${branch} 合并修订 ${compressRevisions(mergedRevisions)}：`
+  );
   const lines: string[] = [header];
 
-  process.stdout.write('  Fetching revision logs...\r');
+  process.stdout.write(tr(lang, '  Fetching revision logs...\r', '  正在获取修订日志...\r'));
   const logMap = svnLogBatch(mergedRevisions, fromUrl);
   process.stdout.write(' '.repeat(40) + '\r');
 
@@ -38,7 +44,7 @@ export function buildMessage(
     if (body) {
       lines.push(body);
     } else {
-      lines.push(`(no log message for r${rev})`);
+      lines.push(tr(lang, `(no log message for r${rev})`, `（r${rev} 无日志消息）`));
     }
     lines.push(ENTRY_SEP);
   }

@@ -17,7 +17,13 @@ function timestamp(): string {
   );
 }
 
-export class Logger {
+/** Minimal interface required by the merge pipeline and merger. */
+export interface ILogger {
+  log(text: string): void;
+  appendRaw(text: string): void;
+}
+
+export class Logger implements ILogger {
   private logPath: string;
   private fd: number;
 

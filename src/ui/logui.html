@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SVN Merge UI - __BRANCH_NAME__</title>
+<link rel="stylesheet" href="/ui/logui.css">
+<script>
+window.__INITIAL_STATE__ = __INITIAL_STATE_JSON__;
+window.__INITIAL_RUN_OPTIONS__ = __INITIAL_RUN_OPTIONS_JSON__;
+window.onerror = function(msg, src, line) {
+  var s = document.getElementById('status-info');
+  if (s) s.textContent = 'JS Error at line ' + line + ': ' + msg;
+  var l = document.getElementById('loaded-info');
+  if (l) l.textContent = 'Script failed.';
+  return false;
+};
+</script>
+<script defer src="/ui/logui.js"></script>
+</head>
+<body>
+
+<div id="toolbar">
+  <div id="info-bar">
+    <div id="lang-switch">
+      <label for="lang-select" id="lang-label">Language</label>
+      <select id="lang-select">
+        <option value="zh-CN">简体中文</option>
+        <option value="en">English</option>
+      </select>
+    </div>
+    <div class="info-row">
+      <span class="info-label" id="label-from">From:</span>
+      <span class="info-value" title="__FROM_URL__">__FROM_URL__</span>
+    </div>
+    <div class="info-row" id="workspace-row" style="__WORKSPACE_STYLE__">
+      <span class="info-label" id="label-workspace">Workspace:</span>
+      <span class="info-value" title="__WORKSPACE__">__WORKSPACE__</span>
+    </div>
+    <div class="info-row" id="stop-rev-row" style="display:none">
+      <span class="info-label" id="label-log-range">Log range:</span>
+      <span class="info-value" id="stop-rev-info"></span>
+    </div>
+  </div>
+  <div id="toolbar-inner">
+  <div id="run-options" class="card collapsed">
+    <button id="run-options-toggle" type="button" aria-expanded="false" title="Show advanced options">
+      <span id="run-options-toggle-text">Advanced Options</span> <span id="run-options-arrow">▾</span>
+    </button>
+    <div id="run-options-content" class="collapsed" aria-hidden="true">
+    <div class="options-grid">
+      <label><input type="checkbox" id="opt-auto-commit"> <span id="label-opt-auto-commit">Auto commit after merge</span></label>
+      <label><input type="checkbox" id="opt-verbose"> <span id="label-opt-verbose">Verbose conflict details</span></label>
+      <label><input type="checkbox" id="opt-copy"> <span id="label-opt-copy">Copy merge message to clipboard</span></label>
+      <label class="wide"><span id="label-opt-output">Output directory:</span>
+        <input id="opt-output" type="text" placeholder="Default: workspace/.svnmerge">
+      </label>
+      <label class="wide"><span id="label-opt-ignore">Ignore paths (comma-separated):</span>
+        <input id="opt-ignore" type="text" placeholder="e.g. src/gen,assets/auto">
+      </label>
+    </div>
+    <div id="safety-tip">Ready to merge. Review selected revisions before proceeding.</div>
+    </div>
+  </div>
+
+  <div id="toolbar-filters">
+    <div id="search-wrap">
+      <button id="search-icon-btn" title="Filter options">🔍▾</button>
+      <input id="search-input" type="text" placeholder="Filter by Messages, Paths, Authors, Revisions..." autocomplete="off" spellcheck="false">
+      <div id="filter-dropdown" class="hidden">
+        <div class="filter-item"><input type="checkbox" id="f-messages" checked><label for="f-messages" id="label-f-messages">Messages</label></div>
+        <div class="filter-item"><input type="checkbox" id="f-paths"><label for="f-paths" id="label-f-paths">Paths</label></div>
+        <div class="filter-item"><input type="checkbox" id="f-authors"><label for="f-authors" id="label-f-authors">Authors</label></div>
+        <div class="filter-item"><input type="checkbox" id="f-revisions"><label for="f-revisions" id="label-f-revisions">Revisions</label></div>
+        <div class="filter-sep"></div>
+        <div class="filter-item"><input type="checkbox" id="f-regex" checked><label for="f-regex" id="label-f-regex">Use regular expression</label></div>
+        <div class="filter-item"><input type="checkbox" id="f-case"><label for="f-case" id="label-f-case">Case-sensitive</label></div>
+      </div>
+      <div id="regex-error"></div>
+    </div>
+    <div id="hide-merged-wrap">
+      <input type="checkbox" id="hide-merged">
+      <label for="hide-merged" id="label-hide-merged">Hide merged revisions</label>
+    </div>
+    <button id="refresh-btn" title="Refresh log from SVN">↻ <span id="refresh-btn-text">Refresh</span></button>
+  </div>
+  </div>
+</div>
+
+<div id="table-wrap">
+  <table id="log-table">
+    <thead>
+      <tr>
+        <th class="col-cb"><input type="checkbox" id="header-cb" title="Toggle all eligible visible"></th>
+        <th class="col-rev" id="th-revision">Revision</th>
+        <th class="col-author" id="th-author">Author</th>
+        <th class="col-date" id="th-date">Date</th>
+        <th class="col-msg" id="th-message">Log Message</th>
+        <th class="col-expand"></th>
+      </tr>
+    </thead>
+    <tbody id="log-body"></tbody>
+  </table>
+  <div id="no-results">No revisions match the current filter.</div>
+</div>
+
+<div id="pagination">
+  <span id="loaded-info">Loading...</span>
+  <button id="show-all-btn">Show All</button>
+  <button id="load-cancel-btn" style="display:none">Cancel</button>
+  <div id="progress-wrap">
+    <div id="progress-label"></div>
+    <div id="progress-track"><div id="progress-fill"></div></div>
+  </div>
+</div>
+
+<div id="statusbar">
+  <div id="status-info">Loading...</div>
+  <div id="selected-info">Selected: 0</div>
+  <button id="confirm-btn" disabled>Start</button>
+</div>
+
+<template id="merge-view-template">
+  <div id="mv-root" class="mv-root">
+    <div class="mv-topbar">
+      <strong id="mv-title">SVN Merge</strong>
+      <span id="mv-status" class="mv-status">Pending...</span>
+    </div>
+    <div id="mv-body" class="mv-body">
+      <div id="mv-sections" class="mv-sections"></div>
+    </div>
+    <div class="mv-bottombar" id="mv-preview-bar">
+      <button id="mv-cancel-btn" class="mv-btn-secondary">Cancel</button>
+      <button id="mv-continue-btn" class="mv-btn-primary">Continue</button>
+    </div>
+    <div class="mv-bottombar" id="mv-merge-bar" style="display:none">
+      <button id="mv-commit-btn" class="mv-btn-primary" disabled>Commit</button>
+      <button id="mv-done-btn" class="mv-btn-secondary" disabled>Done (no commit)</button>
+      <span id="mv-commit-status" class="mv-commit-status"></span>
+    </div>
+  </div>
+
+  <div id="mv-overlay" class="mv-overlay" style="display:none">
+    <div class="mv-overlay-card">
+      <div class="mv-overlay-title" id="mv-overlay-title">SVN Commit Message</div>
+      <textarea id="mv-commit-msg" rows="5" class="mv-overlay-textarea"></textarea>
+      <div class="mv-overlay-actions">
+        <button id="mv-overlay-cancel" class="mv-btn-secondary">Cancel</button>
+        <button id="mv-overlay-ok" class="mv-btn-primary">Commit</button>
+      </div>
+    </div>
+  </div>
+</template>
+
+</body>
+</html>
