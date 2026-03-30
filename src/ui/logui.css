@@ -169,6 +169,20 @@ tr.merged mark.hl { background: #e8e0a0; }
 .mv-overlay-text { color: #444; font-size: 13px; line-height: 1.5; }
 .mv-overlay-textarea { width: 100%; box-sizing: border-box; padding: 8px; border: 1px solid #ccc; border-radius: 3px; font-size: 13px; resize: vertical; }
 .mv-overlay-actions { margin-top: 12px; display: flex; gap: 8px; justify-content: flex-end; }
+.mv-overlay-wide { align-items: flex-start; padding-top: 60px; }
+.mv-overlay-card-full { width: 700px; max-height: 80vh; display: flex; flex-direction: column; }
+.mv-overlay-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+.mv-overlay-header .mv-overlay-title { margin-bottom: 0; }
+.mv-btn-icon { background: none; border: none; font-size: 20px; cursor: pointer; color: #666; padding: 0 4px; }
+.mv-btn-icon:hover { color: #333; }
+.mv-overlay-body { flex: 1; overflow-y: auto; min-height: 200px; max-height: 50vh; }
+.mv-overlay-status { margin-bottom: 10px; font-size: 13px; font-weight: 600; }
+.mv-overlay-footer { margin-top: 12px; display: flex; gap: 8px; justify-content: flex-end; }
+.mv-revision-list { max-height: 400px; overflow-y: auto; }
+.mv-revision-item { display: flex; align-items: center; padding: 6px 8px; border-bottom: 1px solid #eee; }
+.mv-revision-item:last-child { border-bottom: none; }
+.mv-revision-num { font-family: Consolas, monospace; font-weight: 600; color: #0078d4; min-width: 80px; }
+.mv-revision-msg { color: #444; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 @media (max-width: 900px) {
   .options-grid { grid-template-columns: 1fr; }

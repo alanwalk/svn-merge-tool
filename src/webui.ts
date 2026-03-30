@@ -16,7 +16,7 @@ import { FileRunLogger } from './output/file/file-run-logger';
 import { RunLogger } from './output/run-logger-types';
 import { SseRunLogger } from './output/webui/sse-run-logger';
 import { TerminalRunLogger } from './output/terminal/terminal-run-logger';
-import { runMergePipeline } from './pipeline';
+import { runMergePipeline, runManualCommit } from './pipeline';
 import {
   svnBranchCreationRevision, svnCommit, svnEligibleRevisions,
   svnLogPage, svnStatusDirty, svnWorkspaceUrl
@@ -43,7 +43,7 @@ const DEFAULT_UI_RUN_OPTIONS: UiRunOptions = {
   verbose: false,
   autoCommit: false,
   outputDir: '',
-  copyToClipboard: true,
+  copyToClipboard: false,
   preselectedRevisions: [],
 };
 
@@ -85,6 +85,8 @@ if (!isMainThread) {
     revisions: number[];
     runOptions: UiRunOptions;
   };
+  _workerParent!.postMessage({ type: 'log', text: '[WORKER] revisions=' + JSON.stringify(wd.revisions) + ' workspace=' + wd.workspace });
+  
   const postLog = (text: string) => _workerParent!.postMessage({ type: 'log', text });
 
   let summary: MergeSummary = { total: 0, succeeded: 0, withConflicts: 0, failed: 0, results: [] };
@@ -471,7 +473,6 @@ export function openLogUI(
       mergeStreamResponse = null;
       activeMergeWorker = null;
       mergeCancellationInProgress = false;
-      resumeHeartbeat();
     }
 
     const server = http.createServer((req, res) => {
@@ -585,6 +586,7 @@ export function openLogUI(
           const sendEvent = (data: unknown) => res.write(`data: ${JSON.stringify(data)}\n\n`);
 
           mergeStreamResponse = res;
+          console.error('[MAIN] Creating worker with revisions:', revisions, 'len:', revisions?.length);
           const worker = new Worker(__filename, {
             execArgv: ['-r', 'ts-node/register'],
             workerData: { fromUrl, workspace, revisions, runOptions },
@@ -594,13 +596,15 @@ export function openLogUI(
 
           worker.on('message', (msg) => { sendEvent(msg); });
           worker.on('error', (e) => {
+            console.error('[MAIN] Worker error:', e.message);
             if (!mergeCancellationInProgress) {
               sendEvent({ type: 'log', text: `Worker error: ${e.message}` });
               sendEvent({ type: 'done', summary: { total: 0, succeeded: 0, withConflicts: 0, failed: 0, results: [] }, hasWorkspace: !!workspace });
             }
             finishMergeStream();
           });
-          worker.on('exit', () => {
+          worker.on('exit', (code) => {
+            console.error('[MAIN] Worker exited with code:', code);
             finishMergeStream();
           });
         }).catch((e) => { try { res.end(); } catch { /**/ } console.error('run-merge:', (e as Error).message); });
@@ -730,12 +734,17 @@ export function openLogUI(
           if (!workspace) { sendJson(res, { ok: false, error: 'No workspace configured' }); return; }
           let message = '';
           try { message = (JSON.parse(body) as { message: string }).message ?? ''; } catch { /* ignore */ }
-          try {
-            const output = svnCommit(workspace, message);
-            sendJson(res, { ok: true, output });
-            setTimeout(() => { clearInterval(heartbeatTimer!); server.close(); resolve(selectedRevisions); }, 300);
-          } catch (e) {
-            sendJson(res, { ok: false, error: (e as Error).message });
+          
+          const commitLogger = new TerminalRunLogger(!!state.runOptions.verbose);
+          const result = runManualCommit(
+            { workspace, message, lang: state.runOptions.lang },
+            commitLogger,
+          );
+          
+          if (result.ok) {
+            sendJson(res, { ok: true, output: result.output });
+          } else {
+            sendJson(res, { ok: false, error: result.error });
           }
         }).catch(() => sendJson(res, { ok: false, error: 'Bad request' }, 400));
         return;

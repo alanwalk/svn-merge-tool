@@ -30,7 +30,10 @@ export interface I18nMessages {
   unresolvedConflictsReason(args: { revisions: string }): string;
   autoCommitSkipped(args: { reasons: string }): string;
   autoCommitSkippedNoSuccess: string;
-  autoCommitSuccessful: string;
+    autoCommitSuccessful: string;
+    manualCommitTitle: string;
+    manualCommitSuccessful: string;
+    manualCommitFailed: ({ error }: { error: string }) => string;
   autoCommitFailed(args: { error: string }): string;
   updateAvailable(args: { currentVersion: string; latestVersion: string }): string;
   runNpmInstallNow(args: { packageName: string }): string;
@@ -118,6 +121,9 @@ export const I18N_MESSAGES: Record<AppLang, I18nMessages> = {
     autoCommitSkippedNoSuccess: 'Auto-commit skipped: no revisions were successfully merged.',
     autoCommitSuccessful: 'Auto-commit successful.',
     autoCommitFailed: ({ error }) => `Auto-commit failed: ${error}`,
+    manualCommitTitle: 'Manual Commit',
+    manualCommitSuccessful: 'Commit successful.',
+    manualCommitFailed: ({ error }) => `Commit failed: ${error}`,
     updateAvailable: ({ currentVersion, latestVersion }) => `\nUpdate available: v${currentVersion} → v${latestVersion}`,
     runNpmInstallNow: ({ packageName }) => `Run "npm install -g ${packageName}" now? [y/N] `,
     runningNpmInstall: ({ packageName }) => `\nRunning: npm install -g ${packageName} ...`,
@@ -216,6 +222,9 @@ Options:
     autoCommitSkippedNoSuccess: '自动提交已跳过：没有成功合并的修订。',
     autoCommitSuccessful: '自动提交成功。',
     autoCommitFailed: ({ error }) => `自动提交失败：${error}`,
+    manualCommitTitle: '手动提交',
+    manualCommitSuccessful: '提交成功。',
+    manualCommitFailed: ({ error }) => `提交失败：${error}`,
     updateAvailable: ({ currentVersion, latestVersion }) => `\n发现新版本：v${currentVersion} → v${latestVersion}`,
     runNpmInstallNow: ({ packageName }) => `是否现在执行 "npm install -g ${packageName}"？[y/N] `,
     runningNpmInstall: ({ packageName }) => `\n正在执行：npm install -g ${packageName} ...`,

@@ -1,5 +1,8 @@
 # svn-merge-tool 架构方案
 
+> ⚠️ **状态**: 本文档已过时，请参考 TODO.md 获取最新重构状态
+> ⚠️ **注意**: `src/webui.ts` 尚未完全拆分为 orchestration + Web 资源，这是剩余的架构改进点
+
 ## 目标
 
 重构后的工具应满足：
@@ -8,6 +11,53 @@
 - workflow 编排共享
 - 命令入口足够薄
 - CLI 与 WebUI 仅在 orchestration 与渲染层存在差异
+
+---
+
+## ⚡ 当前架构状态 (已实现)
+
+| 层级 | 状态 | 说明 |
+|------|------|------|
+| Command Entry | ✅ 完成 | `src/index.ts` + `src/commands/` |
+| 共享 Workflow | ✅ 完成 | `src/pipeline.ts` = `runMergePipeline()` |
+| 原子模块 | ✅ 完成 | `src/modules/`, `src/core/`, `src/svn.ts` |
+| Event/Model | ✅ 完成 | `logger.ts` 事件类型, `core/models.ts` |
+| Output Adapter | ✅ 完成 | `src/output/composite-run-logger.ts` 等 |
+| Exit Code | ✅ 完成 | `src/core/exit-codes.ts` |
+
+### 已验证
+
+- `npm test`: 103/103 通过
+- `tsc --noEmit`: 无类型错误
+- CLI 与 WebUI 共用 `runMergePipeline`
+
+### 当前实际文件结构
+
+```
+src/
+├── index.ts                    # CLI 入口 (command bootstrap)
+├── pipeline.ts                 # 共享 workflow: runMergePipeline()
+├── merger.ts                   # 核心合并逻辑 (通过 ILogger 接口输出)
+├── svn.ts                      # SVN 命令封装 (无终端交互)
+├── logger.ts                   # ILogger 接口 + MergeProgressEvent
+├── commands/
+│   ├── run.ts                  # CLI merge 命令
+│   ├── cleanup.ts              # CLI cleanup 命令
+│   └── ui.ts                    # CLI ui 命令
+├── core/
+│   ├── models.ts               # SelectionSnapshot, CleanupSummary
+│   └── exit-codes.ts           # ExitClassification, mapExitCode
+├── modules/
+│   ├── options/                # buildSharedRunContext
+│   ├── revisions/              # parseRevisionExpression
+│   └── platform/               # copyToClipboard
+└── output/
+    ├── composite-run-logger.ts
+    ├── run-logger-types.ts     # RunLogger 接口
+    ├── terminal/              # TerminalRunLogger
+    ├── file/                  # FileRunLogger
+    └── webui/                 # SseRunLogger
+```
 
 ## 分层模型
 
@@ -301,15 +351,14 @@ Cleanup run：
 - CLI 确认路径
 - WebUI 确认路径
 
-## 迁移说明
+## 迁移说明 (已完成)
 
-当前最可能的迁移目标：
+以下迁移目标已全部完成：
 
-- [`src/index.ts`](/d:/svn-merge-tool/src/index.ts) 转为 command bootstrap，不再主导业务流程
-- [`src/webui.ts`](/d:/svn-merge-tool/src/webui.ts) 需要拆成 UI orchestration 与 Web 资源/服务逻辑
-- [`src/pipeline.ts`](/d:/svn-merge-tool/src/pipeline.ts) 可被提升或替换为共享 workflow 文件
-- [`src/merger.ts`](/d:/svn-merge-tool/src/merger.ts) 必须停止直接写 `stdout`
-- [`src/svn.ts`](/d:/svn-merge-tool/src/svn.ts) 不应继续持有终端交互行为
+- ✅ [`src/index.ts`](src/index.ts) 已转为 command bootstrap，不再主导业务流程
+- ✅ [`src/pipeline.ts`](src/pipeline.ts) 已实现为共享 workflow (`runMergePipeline`)
+- ✅ [`src/merger.ts`](src/merger.ts) 已通过 `ILogger` 接口抽象，不再直接写 `stdout`
+- ✅ [`src/svn.ts`](src/svn.ts) 已解耦，返回结构化结果，无交互式终端行为
 
 ## 需要长期保护的架构规则
 

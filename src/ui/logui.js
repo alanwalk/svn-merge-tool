@@ -128,6 +128,7 @@ const I18N = {
         workspaceDirtySectionTitle: '检测到工作副本有变更',
         workspaceDirtyPrompt: '请先清理以下文件，再继续后续操作。',
         cleanWorkspaceNow: '立即清理',
+    cleanWorkspace: '清理工作区',
         closePage: '关闭',
         continueToLog: '继续',
         workspaceCleanReady: '工作副本已清理完成，可以继续进入日志选择。',
@@ -135,9 +136,11 @@ const I18N = {
         cleanupStartingHint: '正在启动清理流程，请稍候。',
         doneNoCommit: '完成（不提交）',
         commit: '提交',
+        commitsToMerge: '待合并修订: {count}',
         committing: '提交中...',
         doneCloseTab: '完成。可关闭此页面。',
         committedCloseTab: '已提交。可关闭此页面。',
+        manualCommitSuccessful: '提交成功。',
         commitFailed: '提交失败: {err}',
         autoCommitSucceeded: '自动提交成功。',
         logPrefix: '日志: {path}',
@@ -250,6 +253,7 @@ const I18N = {
         workspaceDirtySectionTitle: 'Detected workspace changes',
         workspaceDirtyPrompt: 'Clean the following paths before proceeding.',
         cleanWorkspaceNow: 'Clean Now',
+    cleanWorkspace: 'Clean Workspace',
         closePage: 'Close',
         continueToLog: 'Continue',
         workspaceCleanReady: 'Workspace cleanup finished. You can continue to the log selection view.',
@@ -257,9 +261,11 @@ const I18N = {
         cleanupStartingHint: 'Starting cleanup pipeline, please wait.',
         doneNoCommit: 'Done (no commit)',
         commit: 'Commit',
+        commitsToMerge: 'Revisions to merge: {count}',
         committing: 'Committing...',
         doneCloseTab: 'Done. You can close this tab.',
         committedCloseTab: 'Committed. You can close this tab.',
+        manualCommitSuccessful: 'Commit successful.',
         commitFailed: 'Commit failed: {err}',
         autoCommitSucceeded: 'Auto-commit succeeded.',
         logPrefix: 'Log: {path}',
@@ -430,14 +436,26 @@ function init() {
             });
         }
         runOptions = Object.assign({}, runOptions, __INITIAL_RUN_OPTIONS__ || {});
+        
+        var runOptionsEl = document.getElementById('run-options');
+        if (runOptionsEl) runOptionsEl.style.display = 'none';
+        
         setRunOptionsExpanded(false);
         applyRunOptionsToUI();
         applyLanguage();
         applyServerState(__INITIAL_STATE__);
+        
+        var cleanupBtn = document.getElementById('cleanup-btn');
         if (Array.isArray(__INITIAL_STATE__.dirtyWorkspaceLines) && __INITIAL_STATE__.dirtyWorkspaceLines.length > 0) {
+            cleanupBtn.style.display = '';
+            cleanupBtn.textContent = t('cleanWorkspace');
+            cleanupBtn.onclick = function() {
+                showDirtyWorkspaceGate(__INITIAL_STATE__.dirtyWorkspaceLines);
+            };
             showDirtyWorkspaceGate(__INITIAL_STATE__.dirtyWorkspaceLines);
             return;
         }
+        
         setUiMode('list');
         if (__INITIAL_STATE__.stopRev > 1) {
             document.getElementById('stop-rev-row').style.display = '';
@@ -1210,6 +1228,45 @@ document.getElementById('confirm-btn').addEventListener('click', async () => {
         return;
     }
 
+    var entryMap = {};
+    for (var i = 0; i < allEntries.length; i++) {
+        entryMap[allEntries[i].revision] = allEntries[i];
+    }
+    
+    var listEl = document.getElementById('mv-revision-confirm-list');
+    var statusEl = document.getElementById('mv-revision-confirm-status');
+    statusEl.textContent = t('commitsToMerge', { count: revisions.length });
+    statusEl.style.color = '#0078d4';
+    listEl.innerHTML = '';
+    revisions.forEach(function(rev) {
+        var entry = entryMap[rev];
+        var msg = entry ? (entry.message || t('noMessageShort')).split('\n')[0].trim() : t('noMessageShort');
+        var item = document.createElement('div');
+        item.className = 'mv-revision-item';
+        item.innerHTML = '<span class="mv-revision-num">' + htmlEsc(t('revisionPrefix')) + htmlEsc(String(rev)) + '</span><span class="mv-revision-msg">' + htmlEsc(msg) + '</span>';
+        listEl.appendChild(item);
+    });
+
+    var overlay = document.getElementById('mv-revision-confirm-overlay');
+    var closeBtn = document.getElementById('mv-revision-confirm-close');
+    var cancelBtn = document.getElementById('mv-revision-confirm-cancel');
+    var okBtn = document.getElementById('mv-revision-confirm-ok');
+    
+    closeBtn.onclick = function() {
+        overlay.style.display = 'none';
+    };
+    cancelBtn.onclick = function() {
+        overlay.style.display = 'none';
+    };
+    okBtn.onclick = async function() {
+        overlay.style.display = 'none';
+        doStartMerge(revisions, options);
+    };
+    
+    overlay.style.display = 'flex';
+});
+
+async function doStartMerge(revisions, options) {
     document.getElementById('confirm-btn').disabled = true;
     document.getElementById('confirm-btn').textContent = t('startStarting');
     setRunControlsDisabled(true);
@@ -1231,7 +1288,7 @@ document.getElementById('confirm-btn').addEventListener('click', async () => {
         document.getElementById('confirm-btn').textContent = t('start');
         setRunControlsDisabled(false);
     }
-});
+}
 
 // -- Merge progress view --------------------------------------------------
 function htmlEsc(s) {
@@ -1453,13 +1510,85 @@ function showCleanupPipelineView(options) {
 }
 
 function showDirtyWorkspaceGate(dirtyLines) {
-    showCleanupPipelineView({
+    showCleanupOverlay({
         dirtyLines: dirtyLines,
         runPipeline: runWorkspaceCleanupPipeline,
         onBack: function () {
-            window.location.href = '/';
+            hideCleanupOverlay();
         }
     });
+}
+
+function showCleanupOverlay(options) {
+    var overlay = document.getElementById('mv-cleanup-overlay');
+    if (!overlay) return;
+    
+    var statusEl = document.getElementById('mv-cleanup-status');
+    var sectionsEl = document.getElementById('mv-cleanup-sections');
+    var runBtn = document.getElementById('mv-cleanup-run');
+    var cancelBtn = document.getElementById('mv-cleanup-cancel');
+    var closeBtn = document.getElementById('mv-cleanup-close');
+    
+    var sectionController = createMergeSectionController(sectionsEl);
+    
+    statusEl.textContent = t('workspaceDirtyStatus');
+    statusEl.style.color = '#9a5c00';
+    sectionsEl.innerHTML = '';
+    runBtn.disabled = false;
+    runBtn.textContent = t('cleanWorkspaceNow');
+    cancelBtn.textContent = t('cancel');
+    
+    if (Array.isArray(options.dirtyLines) && options.dirtyLines.length > 0) {
+        var dirtySection = document.createElement('div');
+        dirtySection.className = 'mv-section';
+        dirtySection.style.borderLeftColor = '#9a5c00';
+        dirtySection.innerHTML =
+            '<div class="mv-section-hd" style="cursor:default">' +
+            '<span class="mv-section-icon">\u26A0</span>' +
+            '<span class="mv-section-title">' + htmlEsc(t('workspaceDirtySectionTitle')) + '</span>' +
+            '</div>' +
+            '<div class="mv-section-bd">' +
+            '<div style="padding:12px 14px;color:#444;">' + htmlEsc(t('workspaceDirtyPrompt')) + '</div>' +
+            '<pre class="mv-section-log">' + htmlEsc(options.dirtyLines.join('\n')) + '</pre>' +
+            '</div>';
+        sectionsEl.appendChild(dirtySection);
+    }
+    
+    overlay.style.display = 'flex';
+    
+    closeBtn.onclick = function() {
+        if (typeof options.onBack === 'function') options.onBack();
+    };
+    
+    cancelBtn.onclick = function() {
+        if (typeof options.onBack === 'function') options.onBack();
+    };
+    
+    runBtn.onclick = async function() {
+        runBtn.disabled = true;
+        cancelBtn.disabled = true;
+        closeBtn.disabled = true;
+        statusEl.textContent = t('cleanupRunning');
+        statusEl.color = '#9a5c00';
+        
+        await options.runPipeline(statusEl, sectionController, function(ok) {
+            runBtn.disabled = false;
+            cancelBtn.disabled = false;
+            closeBtn.disabled = false;
+            if (ok) {
+                statusEl.textContent = t('workspaceCleanReady');
+                statusEl.style.color = '#107c10';
+            } else {
+                statusEl.textContent = t('mergeCanceledDirty');
+                statusEl.style.color = '#c42b1c';
+            }
+        });
+    };
+}
+
+function hideCleanupOverlay() {
+    var overlay = document.getElementById('mv-cleanup-overlay');
+    if (overlay) overlay.style.display = 'none';
 }
 
 async function consumeEventStream(res, onEvent) {
@@ -1563,6 +1692,7 @@ function showMergeView(revisions, options) {
     });
 
     document.getElementById('mv-continue-btn').addEventListener('click', function () {
+        console.error('[UI] Continue button clicked, revisions in closure:', revisions, 'len:', revisions ? revisions.length : 'null');
         var continueBtn = document.getElementById('mv-continue-btn');
         var cancelBtn = document.getElementById('mv-cancel-btn');
         continueBtn.disabled = true;
@@ -1647,19 +1777,55 @@ function showMergeView(revisions, options) {
                 });
                 var d2 = await r2.json();
                 document.getElementById('mv-overlay').style.display = 'none';
-                var st = document.getElementById('mv-commit-status');
+                
+                var commitOverlay = document.getElementById('mv-commit-result-overlay');
+                var commitStatus = document.getElementById('mv-commit-result-status');
+                var commitSections = document.getElementById('mv-commit-result-sections');
+                var doneBtn = document.getElementById('mv-commit-result-done');
+                
                 if (d2.ok) {
                     mergeFinalized = true;
+                    commitStatus.textContent = t('manualCommitSuccessful');
+                    commitStatus.style.color = '#107c10';
+                    
+                    var section = document.createElement('div');
+                    section.className = 'mv-section mv-section-commit';
+                    section.innerHTML =
+                        '<div class="mv-section-hd" style="cursor:default">' +
+                        '<span class="mv-section-icon">\u2714</span>' +
+                        '<span class="mv-section-title">' + htmlEsc(t('manualCommitSuccessful')) + '</span>' +
+                        '</div>' +
+                        '<div class="mv-section-bd">' +
+                        '<pre class="mv-section-log" style="white-space:pre-wrap;">' + htmlEsc(d2.output || '') + '</pre>' +
+                        '</div>';
+                    commitSections.appendChild(section);
+                    
+                    var st = document.getElementById('mv-commit-status');
                     st.style.color = '#107c10';
                     st.textContent = t('committedCloseTab');
                     document.getElementById('mv-commit-btn').disabled = true;
                     document.getElementById('mv-done-btn').disabled = true;
                     setMergeCancelAvailable(false);
+                    
+                    doneBtn.onclick = function() {
+                        commitOverlay.style.display = 'none';
+                    };
                 } else {
-                    st.style.color = '#c42b1c';
-                    st.textContent = t('commitFailed', { err: htmlEsc(d2.error || 'unknown') });
+                    commitStatus.textContent = t('commitFailed', { err: htmlEsc(d2.error || 'unknown') });
+                    commitStatus.style.color = '#c42b1c';
                     okBtn.disabled = false; okBtn.textContent = t('commit');
+                    
+                    doneBtn.onclick = function() {
+                        commitOverlay.style.display = 'none';
+                    };
                 }
+                
+                commitOverlay.style.display = 'flex';
+                
+                var closeBtn = document.getElementById('mv-commit-result-close');
+                closeBtn.onclick = function() {
+                    commitOverlay.style.display = 'none';
+                };
             } catch (err) {
                 okBtn.disabled = false; okBtn.textContent = t('commit');
             }
@@ -1673,12 +1839,16 @@ async function runMerge(revisions, options, statusEl, sectionController) {
     var sectionsEl = document.getElementById('mv-sections');
     try {
         activeMergeAbortController = new AbortController();
+        console.error('[UI] runMerge sending, revisions:', revisions, 'len:', revisions ? revisions.length : 'null');
         var res = await fetch('/api/run-merge', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ revisions, runOptions: options || {} }),
             signal: activeMergeAbortController.signal,
         });
+        if (!res.ok) {
+            throw new Error('HTTP ' + res.status + ': ' + res.statusText);
+        }
         await consumeEventStream(res, function (evt) {
                     if (evt.type === 'log') {
                         sectionController.appendLog(evt.text);

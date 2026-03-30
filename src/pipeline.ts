@@ -245,3 +245,39 @@ export function runMergePipeline(
         autoCommitError,
     };
 }
+
+export interface ManualCommitOptions {
+    workspace: string;
+    message: string;
+    lang?: 'zh-CN' | 'en';
+}
+
+export interface ManualCommitResult {
+    ok: boolean;
+    output: string;
+    error: string;
+}
+
+export function runManualCommit(
+    opts: ManualCommitOptions,
+    logger: RunLogger,
+): ManualCommitResult {
+    const { workspace, message } = opts;
+    const lang = opts.lang ?? 'en';
+
+    logger.sectionStart(tr(lang, 'manualCommitTitle'), 'commit');
+    try {
+        const output = svnCommit(workspace, message);
+        logger.log(tr(lang, 'manualCommitSuccessful'));
+        if (output.trim()) {
+            logger.appendRaw(output + '\n');
+        }
+        logger.sectionEnd(true);
+        return { ok: true, output, error: '' };
+    } catch (e) {
+        const error = (e as Error).message;
+        logger.log(tr(lang, 'manualCommitFailed', { error }));
+        logger.sectionEnd(false);
+        return { ok: false, output: '', error };
+    }
+}

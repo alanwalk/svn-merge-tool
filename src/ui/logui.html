@@ -118,6 +118,7 @@ window.onerror = function(msg, src, line) {
   <div id="status-info">Loading...</div>
   <div id="selected-info">Selected: 0</div>
   <button id="confirm-btn" disabled>Start</button>
+  <button id="cleanup-btn" class="mv-btn-secondary" style="display:none">Clean Workspace</button>
 </div>
 
 <template id="merge-view-template">
@@ -160,6 +161,56 @@ window.onerror = function(msg, src, line) {
       <div class="mv-overlay-actions">
         <button id="mv-cancel-overlay-dismiss" class="mv-btn-secondary">Cancel</button>
         <button id="mv-cancel-overlay-confirm" class="mv-btn-primary">Confirm</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="mv-cleanup-overlay" class="mv-overlay mv-overlay-wide" style="display:none">
+    <div class="mv-overlay-card mv-overlay-card-full">
+      <div class="mv-overlay-header">
+        <span class="mv-overlay-title" id="mv-cleanup-title">Clean Workspace</span>
+        <button id="mv-cleanup-close" class="mv-btn-icon" title="Close">&times;</button>
+      </div>
+      <div class="mv-overlay-body">
+        <div id="mv-cleanup-status" class="mv-overlay-status"></div>
+        <div id="mv-cleanup-sections" class="mv-sections"></div>
+      </div>
+      <div class="mv-overlay-footer">
+        <button id="mv-cleanup-cancel" class="mv-btn-secondary">Cancel</button>
+        <button id="mv-cleanup-run" class="mv-btn-primary">Clean Now</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="mv-commit-result-overlay" class="mv-overlay mv-overlay-wide" style="display:none">
+    <div class="mv-overlay-card mv-overlay-card-full">
+      <div class="mv-overlay-header">
+        <span class="mv-overlay-title" id="mv-commit-result-title">Commit Result</span>
+        <button id="mv-commit-result-close" class="mv-btn-icon" title="Close">&times;</button>
+      </div>
+      <div class="mv-overlay-body">
+        <div id="mv-commit-result-status" class="mv-overlay-status"></div>
+        <div id="mv-commit-result-sections" class="mv-sections"></div>
+      </div>
+      <div class="mv-overlay-footer">
+        <button id="mv-commit-result-done" class="mv-btn-primary">Done</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="mv-revision-confirm-overlay" class="mv-overlay mv-overlay-wide" style="display:none">
+    <div class="mv-overlay-card mv-overlay-card-full">
+      <div class="mv-overlay-header">
+        <span class="mv-overlay-title" id="mv-revision-confirm-title">Confirm Merge</span>
+        <button id="mv-revision-confirm-close" class="mv-btn-icon" title="Close">&times;</button>
+      </div>
+      <div class="mv-overlay-body">
+        <div id="mv-revision-confirm-status" class="mv-overlay-status"></div>
+        <div id="mv-revision-confirm-list" class="mv-revision-list"></div>
+      </div>
+      <div class="mv-overlay-footer">
+        <button id="mv-revision-confirm-cancel" class="mv-btn-secondary">Cancel</button>
+        <button id="mv-revision-confirm-ok" class="mv-btn-primary">Continue</button>
       </div>
     </div>
   </div>
