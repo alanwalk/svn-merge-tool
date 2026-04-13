@@ -3,14 +3,80 @@ import { spawnSync } from 'child_process';
 import { ConflictInfo, ConflictType } from './types';
 import { isDir } from './utils';
 
-/** Decode buffer output, trying UTF-8 first then GBK-compatible latin1 fallback */
-function decodeOutput(buf: Buffer): string {
-  const utf8 = buf.toString('utf8');
-  // If it contains replacement characters, it might be GBK encoded (Windows)
-  if (utf8.includes('\uFFFD')) {
-    return buf.toString('binary');
+let cachedWindowsConsoleEncoding: string | null | undefined;
+
+function windowsCodePageToEncoding(codePage: number): string | null {
+  switch (codePage) {
+    case 65001:
+      return 'utf-8';
+    case 936:
+    case 54936:
+      return 'gb18030';
+    case 950:
+      return 'big5';
+    case 932:
+      return 'shift_jis';
+    case 949:
+      return 'euc-kr';
+    default:
+      return null;
   }
-  return utf8;
+}
+
+function getWindowsConsoleEncoding(): string | null {
+  if (process.platform !== 'win32') return null;
+  if (cachedWindowsConsoleEncoding !== undefined) return cachedWindowsConsoleEncoding;
+
+  try {
+    const result = spawnSync('cmd', ['/c', 'chcp'], {
+      encoding: 'utf8',
+      windowsHide: true,
+      timeout: 3000,
+    });
+    const output = `${result.stdout ?? ''}${result.stderr ?? ''}`;
+    const match = output.match(/:\s*(\d+)/) ?? output.match(/(\d+)/);
+    const codePage = match ? parseInt(match[1], 10) : NaN;
+    cachedWindowsConsoleEncoding = Number.isFinite(codePage)
+      ? windowsCodePageToEncoding(codePage)
+      : null;
+  } catch {
+    cachedWindowsConsoleEncoding = null;
+  }
+
+  return cachedWindowsConsoleEncoding;
+}
+
+function decodeWithEncoding(buf: Buffer, encoding: string): string | null {
+  try {
+    return new TextDecoder(encoding, { fatal: true }).decode(buf);
+  } catch {
+    return null;
+  }
+}
+
+/** Decode svn output using UTF-8 first, then the active Windows console code page. */
+function decodeOutput(buf: Buffer): string {
+  const utf8 = decodeWithEncoding(buf, 'utf-8');
+  if (utf8 !== null) {
+    return utf8;
+  }
+
+  if (process.platform === 'win32') {
+    const consoleEncoding = getWindowsConsoleEncoding() ?? 'gb18030';
+    const decoded = decodeWithEncoding(buf, consoleEncoding);
+    if (decoded !== null) {
+      return decoded;
+    }
+
+    if (consoleEncoding !== 'gb18030') {
+      const gb18030 = decodeWithEncoding(buf, 'gb18030');
+      if (gb18030 !== null) {
+        return gb18030;
+      }
+    }
+  }
+
+  return buf.toString('utf8');
 }
 
 /** Run an SVN command synchronously, returning { stdout, stderr, exitCode } */
