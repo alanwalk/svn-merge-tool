@@ -11,7 +11,7 @@ A CLI tool for merging specific SVN revisions one by one, with automatic conflic
 - **Tree conflicts** → keep local (`working`)
 - **Ignore rules** — paths matching `ignore-merge` patterns are always discarded (reverted), even when they produce no conflict
 - `--dry-run` mode — preview eligible revisions and their log messages without making any changes
-- `-C, --commit` — automatically run `svn commit` after a successful merge, using the generated message file as the commit log
+- `-C, --commit` — automatically run `svn commit` after a successful merge, using the generated merge message as the commit log
 - Minimal console progress with color-coded results; full details streamed to `svnmerge-<timestamp>.log`
 - Commit message (revision range + `svn log` bodies) appended to the log file at the end of each run
 - Pre-merge `svn update` and dirty working-copy check with `[y/N]` prompt
@@ -42,7 +42,7 @@ Options:
   -i, --ignore <paths>      Comma-separated paths to ignore (appended to config ignore list)
   -V, --verbose             Show ignored/reverted file details in console output
   -d, --dry-run             List eligible revisions and their log messages, no merge
-  -C, --commit              Auto svn commit after successful merge (uses generated message file)
+  -C, --commit              Auto svn commit after successful merge (uses generated merge message)
   -v, --version             Output version number
   -h, --help                Display help
 ```
@@ -57,7 +57,7 @@ svn-merge-tool -r 84597-84608,84610
 svn-merge-tool -d
 svn-merge-tool -d -r 84597-84610
 
-# Merge and auto-commit using the generated message file
+# Merge and auto-commit using the generated merge message
 svn-merge-tool -r 1001 -C
 
 # Ignore specific paths on the command line (appended to config ignore list)
@@ -160,6 +160,9 @@ The log file is written to the `output` directory (default: `.svnmerge/` under w
 
 ### 1.0.8
 - Fix: property-only modified paths after merge are now kept for post-merge change detection, so workspace-level `svn:mergeinfo` updates are included in auto-commit
+
+### 1.0.10
+- Fix: auto-commit now passes the commit message and changed-path list through temporary files, avoiding Windows `ENAMETOOLONG` failures on large merges
 
 ### 1.0.7
 - Fix: no-`-r` auto-discovered revisions no longer trigger a second confirmation prompt

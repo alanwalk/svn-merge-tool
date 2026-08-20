@@ -11,7 +11,7 @@
 - **树冲突** → 保留本地版本（`working`）
 - **忽略规则** — 匹配 `ignore-merge` 的路径始终丢弃（revert），即使没有产生冲突
 - `--dry-run` 模式 — 预览待合并的修订版本及其日志，不执行任何实际修改
-- `--commit` — 合并成功后自动执行 `svn commit`，以生成的 message.txt 内容作为提交日志
+- `--commit` — 合并成功后自动执行 `svn commit`，以生成的合并信息作为提交日志
 - 控制台仅显示精简进度（带颜色），完整日志实时写入 `svnmerge-<时间戳>.log`
 - 提交信息（修订版本范围 + `svn log` 正文）追加到日志文件末尾
 - 合并前自动执行 `svn update`，检测工作副本脏状态并提示 `[y/N]`
@@ -48,7 +48,7 @@ svn-merge-tool [选项]
   -i, --ignore <paths>      逗号分隔的忽略路径（追加到配置的 ignore 列表）
   -V, --verbose             在控制台显示 ignored/reverted 文件详情
   -d, --dry-run             列出待合并修订版本及日志，不执行合并
-  -C, --commit              合并成功后自动执行 svn commit（使用生成的 message.txt）
+  -C, --commit              合并成功后自动执行 svn commit（使用生成的合并信息）
   -v, --version             显示版本号
   -h, --help                显示帮助
 ```
@@ -63,7 +63,7 @@ svn-merge-tool -r 84597-84608,84610
 svn-merge-tool -d
 svn-merge-tool -d -r 84597-84610
 
-# 合并后自动提交，使用生成的 message 文件作为日志
+# 合并后自动提交，使用生成的合并信息作为日志
 svn-merge-tool -r 1001 -C
 
 # 命令行传入忽略路径（追加到配置文件的 ignore 列表）
@@ -167,6 +167,9 @@ Merge Summary:
 
 ### 1.0.8
 - 修复：合并后仅有属性变更的路径现在会保留在后置变更检测中，因此工作副本根目录这类 `svn:mergeinfo` 更新也会被自动提交纳入
+
+### 1.0.10
+- 修复：自动提交改用临时文件传递提交说明和变更路径清单，避免大规模合并时 Windows 因命令行参数过长触发 `ENAMETOOLONG`
 
 ### 1.0.7
 - 修复：不带 `-r` 自动发现 eligible 修订版本时，不再弹出第二次合并确认

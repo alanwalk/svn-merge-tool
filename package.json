@@ -1,6 +1,6 @@
 {
     "name": "svn-merge-tool",
-    "version": "1.0.9",
+    "version": "1.0.10",
     "description": "SVN branch merge CLI tool - merge specific revisions one by one",
     "license": "MIT",
     "homepage": "https://github.com/alanwalk/svn-merge-tool#readme",

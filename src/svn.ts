@@ -1,4 +1,7 @@
 import { spawnSync } from 'child_process';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 
 import { ConflictInfo, ConflictType } from './types';
 import { isDir } from './utils';
@@ -317,15 +320,46 @@ function parseSvnLogOutput(stdout: string, resultMap: Map<number, string>): void
 /**
  * Run `svn commit` on the workspace with the given message.
  * If targets are provided, only those paths are committed; otherwise the whole workspace.
+ *
+ * The commit message and target list are written to temporary files instead of
+ * being expanded into the child-process argument list. This is important on
+ * Windows, where a merge with many changed paths can exceed the command-line
+ * length limit before `svn` even starts (spawnSync ENAMETOOLONG).
  * Throws on non-zero exit code.
  */
 export function svnCommit(workspace: string, message: string, targets?: string[]): string {
-  const paths = targets && targets.length > 0 ? targets : [workspace];
-  const { stdout, stderr, exitCode } = runSvn(['commit', '-m', message, ...paths]);
-  if (exitCode !== 0) {
-    throw new Error(`svn commit failed (exit ${exitCode}):\n${stderr || stdout}`);
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'svn-merge-tool-'));
+  const messageFile = path.join(tempDir, 'commit-message.txt');
+  const targetFile = targets && targets.length > 0
+    ? path.join(tempDir, 'commit-targets.txt')
+    : undefined;
+
+  try {
+    fs.writeFileSync(messageFile, message, 'utf8');
+
+    const args = ['commit', '--file', messageFile, '--encoding', 'utf-8'];
+    if (targetFile) {
+      const absoluteTargets = targets!.map((target) =>
+        path.isAbsolute(target) ? target : path.resolve(workspace, target)
+      );
+      fs.writeFileSync(targetFile, `${absoluteTargets.join('\n')}\n`, 'utf8');
+      args.push('--targets', targetFile);
+    } else {
+      args.push(workspace);
+    }
+
+    const { stdout, stderr, exitCode } = runSvn(args, workspace);
+    if (exitCode !== 0) {
+      throw new Error(`svn commit failed (exit ${exitCode}):\n${stderr || stdout}`);
+    }
+    return stdout.trim();
+  } finally {
+    try {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    } catch {
+      // A failed cleanup must not hide the SVN result.
+    }
   }
-  return stdout.trim();
 }
 
 /**
