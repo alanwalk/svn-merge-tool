@@ -21,7 +21,7 @@ jobs:
           node-version: 24
           package-manager-cache: false
       - run: npm ci
-      - run: npm test
+      - run: npm run prepublishOnly
 
   publish-npm:
     needs: build
